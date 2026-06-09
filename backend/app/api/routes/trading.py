@@ -6,8 +6,9 @@ from app.api.deps import current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
-from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
+from app.schemas.dto import ActionMessage, BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
 from app.services.backtesting import BacktestingService
+from app.services.control import TradingControlService
 from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
 from app.services.risk_manager import RiskSettings
@@ -18,6 +19,9 @@ router = APIRouter(prefix="/trading", tags=["trading"])
 
 @router.post("/run-once", response_model=TradingRunOut)
 async def run_once(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingRunOut:
+    paused, _reason = await TradingControlService().is_paused()
+    if paused:
+        return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
     user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
     risk_settings = RiskSettings(
         balance=1000,
@@ -46,6 +50,7 @@ async def tick(_: User = Depends(current_user), db: AsyncSession = Depends(get_d
 @router.get("/status", response_model=SystemStatusOut)
 async def status(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> SystemStatusOut:
     settings = get_settings()
+    paused, panic_reason = await TradingControlService().is_paused()
     user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
     open_positions = (
         await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
@@ -58,7 +63,21 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         telegram_chat_count=len(settings.telegram_allowed_chat_ids),
         open_positions=int(open_positions),
         daily_pnl=float(daily_pnl.scalar_one()),
+        panic_paused=paused,
+        panic_reason=panic_reason,
     )
+
+
+@router.post("/panic", response_model=ActionMessage)
+async def panic(_: User = Depends(current_user), reason: str = "manual") -> ActionMessage:
+    await TradingControlService().panic(reason)
+    return ActionMessage(ok=True, message=f"Trading entry scans paused: {reason}")
+
+
+@router.post("/resume", response_model=ActionMessage)
+async def resume(_: User = Depends(current_user)) -> ActionMessage:
+    await TradingControlService().resume()
+    return ActionMessage(ok=True, message="Trading entry scans resumed")
 
 
 @router.get("/backtest/sample", response_model=BacktestOut)

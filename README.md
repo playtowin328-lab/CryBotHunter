@@ -102,6 +102,10 @@ Use `POST /api/v1/agents/analyze` to run structured market and risk agents. Ever
 
 Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` to enable the optional LLM advisor. It can only advise through structured JSON; it cannot open trades directly.
 
+Use `GET /health/deep` to check database, Redis, panic state, paper mode, market data mode, and LLM provider.
+
+Use `POST /api/v1/trading/panic` to pause new entries and `POST /api/v1/trading/resume` to resume them. Telegram supports `/panic` and `/resume`.
+
 Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
 
 Generate `ENCRYPTION_KEY` with:
@@ -131,6 +135,8 @@ Supported commands:
 - `/balance`
 - `/stats`
 - `/positions`
+- `/panic`
+- `/resume`
 - `/stop`
 
 ## Current MVP Behavior
@@ -148,6 +154,8 @@ Supported commands:
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Provides safe AI-agent style decisions through `/api/v1/agents/analyze`; agents advise and audit, while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
+- Provides panic/resume controls through API and Telegram.
+- Provides deep health checks through `/health/deep`.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.

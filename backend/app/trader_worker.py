@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry, UserSettings
+from app.services.control import TradingControlService
 from app.services.locks import RedisLockManager
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
@@ -18,6 +19,7 @@ async def main() -> None:
     settings = get_settings()
     engine = TradingEngine()
     locks = RedisLockManager()
+    control = TradingControlService()
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
     while True:
         try:
@@ -25,6 +27,11 @@ async def main() -> None:
                 async with locks.lock("trader-worker-loop", ttl_seconds=max(settings.trader_loop_seconds - 5, 10)) as acquired:
                     if acquired:
                         await engine.manage_open_positions(db)
+                        paused, reason = await control.is_paused()
+                        if paused:
+                            logger.warning("Trader worker entry scan paused: %s", reason)
+                            await asyncio.sleep(settings.trader_loop_seconds)
+                            continue
                         user_settings = (await db.execute(select(UserSettings).order_by(UserSettings.id.asc()).limit(1))).scalar_one_or_none()
                         if user_settings:
                             risk_settings = RiskSettings(

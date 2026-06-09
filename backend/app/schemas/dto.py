@@ -115,6 +115,8 @@ class SystemStatusOut(BaseModel):
     telegram_chat_count: int
     open_positions: int
     daily_pnl: float
+    panic_paused: bool = False
+    panic_reason: str | None = None
 
 
 class BacktestOut(BaseModel):

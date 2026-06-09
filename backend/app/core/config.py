@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     llm_model: str = "gpt-4.1-mini"
     llm_timeout_seconds: int = 20
+    trading_panic_key: str = "trading:panic"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

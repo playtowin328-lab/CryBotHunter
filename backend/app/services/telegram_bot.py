@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import Position, Trade
+from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,8 @@ class TelegramCommandService:
                 "CryBotHunter online.\n\n"
                 "Commands:\n"
                 "/status - system mode and open positions\n"
+                "/panic - pause new entries\n"
+                "/resume - resume new entries\n"
                 "/balance - paper/live balance\n"
                 "/stats - trading statistics\n"
                 "/positions - active positions\n"
@@ -59,13 +62,20 @@ class TelegramCommandService:
             )
         if command == "/stop":
             return "Notifications stay controlled by Railway variables. Stop the telegram service to disable polling."
+        if command == "/panic":
+            await TradingControlService().panic("telegram")
+            return "PANIC enabled. New entries are paused. Open positions will still be managed."
+        if command == "/resume":
+            await TradingControlService().resume()
+            return "Trading resumed. New entries are allowed again."
         if command == "/status":
             settings = get_settings()
+            paused, reason = await TradingControlService().is_paused()
             open_positions = (
                 await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
             ).scalar_one()
             mode = "paper trading" if settings.paper_trading else "live trading"
-            return f"Status: online\nMode: {mode}\nOpen positions: {int(open_positions)}"
+            return f"Status: online\nMode: {mode}\nPaused: {paused} {reason or ''}\nOpen positions: {int(open_positions)}"
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
             return "Balance:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
