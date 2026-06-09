@@ -158,6 +158,7 @@ Supported commands:
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
 - Provides panic/resume controls through API and Telegram.
 - Provides deep health checks through `/health/deep`.
+- Blocks new entries through a performance guard when recent win rate, loss streak, or total profit falls below thresholds.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.

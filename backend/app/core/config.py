@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4.1-mini"
     llm_timeout_seconds: int = 20
     trading_panic_key: str = "trading:panic"
+    guard_min_trades: int = 5
+    guard_min_win_rate: float = 35.0
+    guard_max_loss_streak: int = 3
+    guard_min_total_profit: float = -50.0
 
     @field_validator("cors_origins", mode="before")
     @classmethod

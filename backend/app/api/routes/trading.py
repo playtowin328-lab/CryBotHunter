@@ -6,11 +6,12 @@ from app.api.deps import current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
-from app.schemas.dto import ActionMessage, BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
+from app.schemas.dto import ActionMessage, BacktestOut, PerformanceGuardOut, SystemStatusOut, TradingRunOut, TradingTickOut
 from app.services.backtesting import BacktestingService
 from app.services.control import TradingControlService
 from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
+from app.services.performance_guard import PerformanceGuardService
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
@@ -78,6 +79,12 @@ async def panic(_: User = Depends(current_user), reason: str = "manual") -> Acti
 async def resume(_: User = Depends(current_user)) -> ActionMessage:
     await TradingControlService().resume()
     return ActionMessage(ok=True, message="Trading entry scans resumed")
+
+
+@router.get("/guard", response_model=PerformanceGuardOut)
+async def performance_guard(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> PerformanceGuardOut:
+    report = await PerformanceGuardService().evaluate(db)
+    return PerformanceGuardOut(**report.__dict__)
 
 
 @router.get("/backtest/sample", response_model=BacktestOut)

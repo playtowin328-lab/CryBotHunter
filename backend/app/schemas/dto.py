@@ -119,6 +119,15 @@ class SystemStatusOut(BaseModel):
     panic_reason: str | None = None
 
 
+class PerformanceGuardOut(BaseModel):
+    allowed: bool
+    reason: str
+    trades_checked: int
+    win_rate: float
+    loss_streak: int
+    total_profit: float
+
+
 class BacktestOut(BaseModel):
     win_rate: float
     profit_factor: float

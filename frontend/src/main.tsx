@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -197,6 +197,7 @@ function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
+  const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
   const [historyResult, setHistoryResult] = React.useState<HistoryIngest | null>(null);
   const [run, setRun] = React.useState<TradingRun | null>(null);
@@ -207,14 +208,16 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, backtestRes, ordersRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
+        api.get("/trading/guard"),
         api.get("/trading/backtest/sample"),
         api.get("/orders")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
+      setGuard(guardRes.data);
       setBacktest(backtestRes.data);
       setOrders(ordersRes.data);
     } catch (err) {
@@ -282,6 +285,7 @@ function DashboardView() {
         <StatusItem label="Exchange" value={status?.exchange ?? "-"} />
         <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} chat` : "Disabled"} good={Boolean(status?.telegram_enabled)} />
         <StatusItem label="Open positions" value={String(status?.open_positions ?? 0)} />
+        <StatusItem label="Guard" value={guard?.allowed ? "Allowed" : "Blocked"} good={guard?.allowed ?? true} />
       </div>
       <div className="metric-grid">
         <Metric label="Balance" value={`$${fmt(data?.balance)}`} />

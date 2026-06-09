@@ -8,6 +8,7 @@ from app.schemas.dto import MarketCoin, PositionUpdateOut, TradingDecision, Trad
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
 from app.services.market_scanner import MarketScanner
+from app.services.performance_guard import PerformanceGuardService
 from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.strategy import StrategyCore
 from app.services.telegram_bot import TelegramNotifier
@@ -20,11 +21,25 @@ class TradingEngine:
         self.risk = RiskManager()
         self.exchange = ExchangeClient()
         self.execution = ExecutionService()
+        self.guard = PerformanceGuardService()
         self.telegram = TelegramNotifier()
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings) -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
         coins = await self.scanner.scan()
+        guard = await self.guard.evaluate(db)
+        if not guard.allowed:
+            db.add(LogEntry(level="WARNING", message=f"Performance guard blocked entries: {guard.reason}"))
+            await db.commit()
+            return TradingRunOut(
+                scanned=len(coins),
+                opened=0,
+                skipped=len(coins),
+                decisions=[
+                    TradingDecision(symbol=coin.symbol, signal="WAIT", score=coin.rating, action="SKIPPED", reason=f"performance guard: {guard.reason}")
+                    for coin in coins
+                ],
+            )
         open_count = await self._open_positions_count(db)
         open_symbols = await self._open_symbols(db)
         daily_pnl = await self._daily_pnl(db)

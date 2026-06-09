@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.models.entities import Position, Trade
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
+from app.services.performance_guard import PerformanceGuardService
 from app.services.reconciliation import OrderReconciliationService
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class TelegramCommandService:
                 "/resume - resume new entries\n"
                 "/balance - paper/live balance\n"
                 "/stats - trading statistics\n"
+                "/guard - performance guard status\n"
                 "/positions - active positions\n"
                 "/reconcile - reconcile local orders\n"
                 "/chatid - show this Telegram chat id\n"
@@ -88,6 +90,17 @@ class TelegramCommandService:
             wins = (await db.execute(select(func.count(Trade.id)).where(Trade.profit > 0))).scalar_one()
             win_rate = (int(wins) / int(trades_count) * 100) if trades_count else 0
             return f"Stats:\nTrades: {trades_count}\nPnL: {float(pnl):.2f}\nWin Rate: {win_rate:.2f}%"
+        if command == "/guard":
+            report = await PerformanceGuardService().evaluate(db)
+            return (
+                f"Performance Guard:\n"
+                f"Allowed: {report.allowed}\n"
+                f"Reason: {report.reason}\n"
+                f"Trades: {report.trades_checked}\n"
+                f"Win Rate: {report.win_rate:.2f}%\n"
+                f"Loss Streak: {report.loss_streak}\n"
+                f"Total Profit: {report.total_profit:.2f}"
+            )
         if command == "/positions":
             positions = (
                 await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))

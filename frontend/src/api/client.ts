@@ -97,6 +97,15 @@ export type SystemStatus = {
   daily_pnl: number;
 };
 
+export type PerformanceGuard = {
+  allowed: boolean;
+  reason: string;
+  trades_checked: number;
+  win_rate: number;
+  loss_streak: number;
+  total_profit: number;
+};
+
 export type BacktestReport = {
   win_rate: number;
   profit_factor: number;
