@@ -194,6 +194,24 @@ class PositionOut(BaseModel):
     closed_at: datetime | None = None
 
 
+class OrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    exchange_order_id: str | None = None
+    symbol: str
+    side: str
+    order_type: str
+    status: str
+    requested_amount: float
+    filled_amount: float
+    requested_price: float | None = None
+    average_price: float | None = None
+    fee: float
+    slippage: float
+    created_at: datetime
+
+
 class LogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

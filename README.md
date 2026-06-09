@@ -151,6 +151,7 @@ Supported commands:
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
+- Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Provides safe AI-agent style decisions through `/api/v1/agents/analyze`; agents advise and audit, while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.

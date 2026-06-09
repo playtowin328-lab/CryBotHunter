@@ -31,6 +31,22 @@ export type Position = {
   closed_at?: string | null;
 };
 
+export type Order = {
+  id: number;
+  exchange_order_id?: string | null;
+  symbol: string;
+  side: string;
+  order_type: string;
+  status: string;
+  requested_amount: number;
+  filled_amount: number;
+  requested_price?: number | null;
+  average_price?: number | null;
+  fee: number;
+  slippage: number;
+  created_at: string;
+};
+
 export type Dashboard = {
   balance: number;
   pnl_day: number;

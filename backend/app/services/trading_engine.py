@@ -3,9 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.entities import LogEntry, Position, Signal, Trade
+from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
 from app.schemas.dto import MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.exchange import ExchangeClient
+from app.services.execution import ExecutionService
 from app.services.market_scanner import MarketScanner
 from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.strategy import StrategyCore
@@ -18,6 +19,7 @@ class TradingEngine:
         self.strategy = StrategyCore()
         self.risk = RiskManager()
         self.exchange = ExchangeClient()
+        self.execution = ExecutionService()
         self.telegram = TelegramNotifier()
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings) -> TradingRunOut:
@@ -118,29 +120,52 @@ class TradingEngine:
         volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
         if volume <= 0:
             return None
-        await self.exchange.create_order(coin.symbol, "buy" if side == "LONG" else "sell", volume)
+        entry_order = await self.execution.execute_market(
+            db,
+            coin.symbol,
+            "buy" if side == "LONG" else "sell",
+            volume,
+            coin.price,
+            "ENTRY",
+        )
+        if entry_order.status != OrderStatus.FILLED.value or not entry_order.average_price:
+            return None
+        entry_price = entry_order.average_price
+        stop = entry_price * (1 - settings.stop_loss_percent / 100) if side == "LONG" else entry_price * (1 + settings.stop_loss_percent / 100)
+        take = entry_price * (1 + settings.take_profit_percent / 100) if side == "LONG" else entry_price * (1 - settings.take_profit_percent / 100)
         position = Position(
             symbol=coin.symbol,
             side=side,
-            entry_price=coin.price,
-            current_price=coin.price,
+            entry_price=entry_price,
+            current_price=entry_price,
             volume=volume,
             stop=stop,
             take=take,
             trailing_stop_percent=settings.trailing_stop_percent,
-            highest_price=coin.price,
-            lowest_price=coin.price,
+            highest_price=entry_price,
+            lowest_price=entry_price,
         )
         db.add(position)
-        db.add(Trade(symbol=coin.symbol, side=side, entry_price=coin.price, exit_price=None, profit=0))
+        db.add(Trade(symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
 
     async def _close_position(self, db: AsyncSession, position: Position, exit_price: float, reason: str) -> None:
+        exit_order = await self.execution.execute_market(
+            db,
+            position.symbol,
+            "sell" if position.side == "LONG" else "buy",
+            position.volume,
+            exit_price,
+            f"EXIT_{reason}",
+        )
+        if exit_order.status != OrderStatus.FILLED.value or not exit_order.average_price:
+            db.add(LogEntry(level="ERROR", message=f"Failed to close {position.symbol} #{position.id}: {reason}"))
+            return
         position.status = "CLOSED"
         position.exit_reason = reason
         position.closed_at = datetime.now(timezone.utc)
-        position.current_price = exit_price
-        position.pnl = self._pnl(position, exit_price)
+        position.current_price = exit_order.average_price
+        position.pnl = self._pnl(position, exit_order.average_price)
         trade = (
             await db.execute(
                 select(Trade)
@@ -149,14 +174,15 @@ class TradingEngine:
             )
         ).scalars().first()
         if trade:
-            trade.exit_price = exit_price
-            trade.profit = position.pnl
+            trade.exit_price = exit_order.average_price
+            trade.profit = position.pnl - exit_order.fee
+            position.pnl = trade.profit
         db.add(LogEntry(level="INFO", message=f"Closed {position.symbol} #{position.id}: {reason}, pnl={position.pnl:.2f}"))
         await self.telegram.broadcast(
             f"Position closed\n"
             f"{position.side} {position.symbol}\n"
             f"Reason: {reason}\n"
-            f"Exit: {exit_price:.4f}\n"
+            f"Exit: {exit_order.average_price:.4f}\n"
             f"PnL: {position.pnl:.2f}"
         )
 

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     paper_trading: bool = True
     live_trading_enabled: bool = False
     market_data_mode: str = "paper"
+    paper_fee_rate: float = 0.0004
+    paper_slippage_bps: float = 2.0
     exchange_api_key: str | None = None
     exchange_secret_key: str | None = None
     exchange_passphrase: str | None = None

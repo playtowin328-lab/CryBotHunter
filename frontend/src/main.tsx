@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -195,6 +195,7 @@ function NavButton(props: { active: boolean; onClick: () => void; icon: React.Re
 
 function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
+  const [orders, setOrders] = React.useState<Order[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
   const [historyResult, setHistoryResult] = React.useState<HistoryIngest | null>(null);
@@ -206,14 +207,16 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, backtestRes] = await Promise.all([
+      const [dashboardRes, statusRes, backtestRes, ordersRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
-        api.get("/trading/backtest/sample")
+        api.get("/trading/backtest/sample"),
+        api.get("/orders")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
       setBacktest(backtestRes.data);
+      setOrders(ordersRes.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -314,7 +317,36 @@ function DashboardView() {
           </div>
         </div>
       </div>
+      <OrdersTable orders={orders} />
     </section>
+  );
+}
+
+function OrdersTable({ orders }: { orders: Order[] }) {
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Execution Audit Trail</div>
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Status</th><th>Filled</th><th>Avg Price</th><th>Fee</th><th>Slippage</th></tr>
+        </thead>
+        <tbody>
+          {orders.map((order) => (
+            <tr key={order.id}>
+              <td>{new Date(order.created_at).toLocaleString()}</td>
+              <td className="font-semibold">{order.symbol}</td>
+              <td><span className={`pill ${order.side === "buy" ? "buy" : "sell"}`}>{order.side}</span></td>
+              <td>{order.status}</td>
+              <td>{fmt(order.filled_amount)}</td>
+              <td>${fmt(order.average_price ?? 0)}</td>
+              <td>${fmt(order.fee)}</td>
+              <td>${fmt(order.slippage)}</td>
+            </tr>
+          ))}
+          {!orders.length && <EmptyRow cols={8} text="No orders yet" />}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

@@ -8,6 +8,7 @@ from app.api.deps import current_user
 from app.db.session import get_db
 from app.models.entities import LogEntry, Position, Trade, User
 from app.schemas.dto import PositionOut
+from app.services.execution import ExecutionService
 
 router = APIRouter(prefix="/positions", tags=["positions"])
 
@@ -25,6 +26,16 @@ async def close_position(position_id: int, _: User = Depends(current_user), db: 
     position.status = "CLOSED"
     position.exit_reason = "MANUAL"
     position.closed_at = datetime.now(timezone.utc)
+    exit_order = await ExecutionService().execute_market(
+        db,
+        position.symbol,
+        "sell" if position.side == "LONG" else "buy",
+        position.volume,
+        position.current_price,
+        "EXIT_MANUAL",
+    )
+    if exit_order.average_price:
+        position.current_price = exit_order.average_price
     multiplier = 1 if position.side == "LONG" else -1
     position.pnl = (position.current_price - position.entry_price) * position.volume * multiplier
     trade = (
@@ -36,7 +47,8 @@ async def close_position(position_id: int, _: User = Depends(current_user), db: 
     ).scalars().first()
     if trade:
         trade.exit_price = position.current_price
-        trade.profit = position.pnl
+        trade.profit = position.pnl - exit_order.fee
+        position.pnl = trade.profit
     db.add(LogEntry(level="INFO", message=f"Closed position {position.symbol} #{position.id}"))
     await db.commit()
     await db.refresh(position)

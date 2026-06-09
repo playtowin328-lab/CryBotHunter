@@ -18,6 +18,13 @@ class SignalType(str, Enum):
     WAIT = "WAIT"
 
 
+class OrderStatus(str, Enum):
+    NEW = "NEW"
+    FILLED = "FILLED"
+    CANCELLED = "CANCELLED"
+    FAILED = "FAILED"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -81,6 +88,26 @@ class Trade(Base):
     exit_price: Mapped[float | None] = mapped_column(Float)
     profit: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exchange_order_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    side: Mapped[str] = mapped_column(String(8))
+    order_type: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default=OrderStatus.NEW.value)
+    requested_amount: Mapped[float] = mapped_column(Float)
+    filled_amount: Mapped[float] = mapped_column(Float, default=0.0)
+    requested_price: Mapped[float | None] = mapped_column(Float)
+    average_price: Mapped[float | None] = mapped_column(Float)
+    fee: Mapped[float] = mapped_column(Float, default=0.0)
+    slippage: Mapped[float] = mapped_column(Float, default=0.0)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Candle(Base):
