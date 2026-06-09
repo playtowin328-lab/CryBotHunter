@@ -1,7 +1,7 @@
 import pytest
 
 from app.schemas.dto import AgentDecisionOut, MarketCoin
-from app.services.agents import MarketAnalystAgent, RiskSupervisorAgent
+from app.services.agents import AgentOrchestrator, MarketAnalystAgent, RiskSupervisorAgent
 
 
 def coin(**overrides):
@@ -51,3 +51,23 @@ async def test_risk_agent_blocks_low_confidence(monkeypatch):
     )
     decision = await RiskSupervisorAgent().decide(Db(), market)
     assert decision.action == "BLOCK"
+
+
+def test_orchestrator_forces_wait_on_agent_disagreement():
+    market = AgentDecisionOut(
+        agent_name="MarketAnalystAgent",
+        symbol="BTC/USDT",
+        action="BUY",
+        confidence=0.9,
+        rationale="local buy",
+    )
+    llm = AgentDecisionOut(
+        agent_name="LlmAdvisorAgent",
+        symbol="BTC/USDT",
+        action="SELL",
+        confidence=0.9,
+        rationale="llm sell",
+    )
+    combined = AgentOrchestrator()._combine(market, llm)
+    assert combined.action == "WAIT"
+    assert combined.confidence <= 0.55

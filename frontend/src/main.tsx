@@ -139,12 +139,13 @@ function AgentsView() {
           <StatusItem label="Final Action" value={analysis.final_action} good={analysis.approved} />
           <StatusItem label="Confidence" value={`${fmt(analysis.final_confidence * 100)}%`} />
           <StatusItem label="Market Agent" value={analysis.market.action} good={analysis.market.action !== "WAIT"} />
-          <StatusItem label="Risk Agent" value={analysis.risk.action} good={analysis.risk.action !== "BLOCK"} />
+          <StatusItem label="AI Advisor" value={analysis.llm?.action ?? "Off"} good={!analysis.llm || analysis.llm.action !== "WAIT"} />
         </div>
       )}
       {analysis && (
         <div className="two-col">
           <AgentCard decision={analysis.market} />
+          {analysis.llm && <AgentCard decision={analysis.llm} />}
           <AgentCard decision={analysis.risk} />
         </div>
       )}

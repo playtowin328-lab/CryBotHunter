@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
     trader_loop_seconds: int = 60
+    llm_provider: str = "none"
+    openai_api_key: str | None = None
+    llm_model: str = "gpt-4.1-mini"
+    llm_timeout_seconds: int = 20
 
     @field_validator("cors_origins", mode="before")
     @classmethod

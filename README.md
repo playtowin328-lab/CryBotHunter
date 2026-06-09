@@ -52,6 +52,9 @@ CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
+LLM_PROVIDER=none
+OPENAI_API_KEY=
+LLM_MODEL=gpt-4.1-mini
 ```
 
 Frontend variables:
@@ -96,6 +99,8 @@ Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while 
 Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtesting and future ML datasets.
 
 Use `POST /api/v1/agents/analyze` to run structured market and risk agents. Every agent decision is stored in `agent_decisions` for auditability.
+
+Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` to enable the optional LLM advisor. It can only advise through structured JSON; it cannot open trades directly.
 
 Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
 
@@ -142,6 +147,7 @@ Supported commands:
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Provides safe AI-agent style decisions through `/api/v1/agents/analyze`; agents advise and audit, while deterministic risk checks remain the gate.
+- Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.

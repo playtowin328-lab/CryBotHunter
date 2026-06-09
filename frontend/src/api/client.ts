@@ -115,6 +115,7 @@ export type AgentDecision = {
 export type AgentAnalysis = {
   symbol: string;
   market: AgentDecision;
+  llm?: AgentDecision | null;
   risk: AgentDecision;
   final_action: "BUY" | "SELL" | "WAIT" | "BLOCK";
   final_confidence: number;

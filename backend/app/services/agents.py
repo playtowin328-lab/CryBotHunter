@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import AgentDecision, Position
 from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin
+from app.services.llm import LlmAdvisorProvider
 from app.services.market_scanner import MarketScanner
 from app.services.ml import MlSignalService
 from app.services.strategy import StrategyCore
@@ -83,30 +84,93 @@ class RiskSupervisorAgent:
         )
 
 
+class LlmAdvisorAgent:
+    name = "LlmAdvisorAgent"
+
+    def __init__(self) -> None:
+        self.provider = LlmAdvisorProvider()
+
+    async def decide(self, coin: MarketCoin, market_decision: AgentDecisionOut) -> AgentDecisionOut | None:
+        advice = await self.provider.advise(coin, market_decision.context)
+        if not advice:
+            return None
+        action = advice.action
+        confidence = advice.confidence
+        rationale = advice.rationale
+        if market_decision.action in {"BUY", "SELL"} and action not in {market_decision.action, "WAIT"}:
+            action = "WAIT"
+            confidence = min(confidence, 0.55)
+            rationale = f"LLM disagreed with local signal; forcing WAIT. Original rationale: {advice.rationale}"
+        return AgentDecisionOut(
+            agent_name=self.name,
+            symbol=coin.symbol,
+            action=action,
+            confidence=round(confidence, 2),
+            rationale=rationale,
+            context={"invalid_if": advice.invalid_if, "provider": "openai"},
+        )
+
+
 class AgentOrchestrator:
     def __init__(self) -> None:
         self.scanner = MarketScanner()
         self.market_agent = MarketAnalystAgent()
+        self.llm_agent = LlmAdvisorAgent()
         self.risk_agent = RiskSupervisorAgent()
 
     async def analyze(self, db: AsyncSession, symbol: str) -> AgentAnalysisOut:
         coins = await self.scanner.scan([symbol])
         coin = coins[0]
         market = self.market_agent.decide(coin)
-        risk = await self.risk_agent.decide(db, market)
-        approved = market.action in {"BUY", "SELL"} and risk.action in {"ALLOW", "REDUCE_SIZE"}
-        final_action = market.action if approved else "BLOCK" if risk.action == "BLOCK" else "WAIT"
-        final_confidence = min(market.confidence, risk.confidence)
+        llm = await self.llm_agent.decide(coin, market)
+        candidate = self._combine(market, llm)
+        risk = await self.risk_agent.decide(db, candidate)
+        approved = candidate.action in {"BUY", "SELL"} and risk.action in {"ALLOW", "REDUCE_SIZE"}
+        final_action = candidate.action if approved else "BLOCK" if risk.action == "BLOCK" else "WAIT"
+        final_confidence = min(candidate.confidence, risk.confidence)
         await self._persist(db, market)
+        if llm:
+            await self._persist(db, llm)
         await self._persist(db, risk)
         await db.commit()
         return AgentAnalysisOut(
             symbol=symbol,
             market=market,
+            llm=llm,
             risk=risk,
             final_action=final_action,
             final_confidence=round(final_confidence, 2),
             approved=approved,
+        )
+
+    def _combine(self, market: AgentDecisionOut, llm: AgentDecisionOut | None) -> AgentDecisionOut:
+        if not llm:
+            return market
+        if llm.action == "WAIT":
+            return AgentDecisionOut(
+                agent_name="AgentOrchestrator",
+                symbol=market.symbol,
+                action="WAIT",
+                confidence=min(market.confidence, llm.confidence),
+                rationale="LLM advisor requested WAIT.",
+                context={"market_action": market.action, "llm_action": llm.action},
+            )
+        if market.action == llm.action:
+            return AgentDecisionOut(
+                agent_name="AgentOrchestrator",
+                symbol=market.symbol,
+                action=market.action,
+                confidence=min(0.99, (market.confidence + llm.confidence) / 2),
+                rationale="Market and LLM agents agree.",
+                context={"market_confidence": market.confidence, "llm_confidence": llm.confidence},
+            )
+        return AgentDecisionOut(
+            agent_name="AgentOrchestrator",
+            symbol=market.symbol,
+            action="WAIT",
+            confidence=min(market.confidence, llm.confidence, 0.55),
+            rationale="Agent disagreement; forcing WAIT.",
+            context={"market_action": market.action, "llm_action": llm.action},
         )
 
     async def _persist(self, db: AsyncSession, decision: AgentDecisionOut) -> None:

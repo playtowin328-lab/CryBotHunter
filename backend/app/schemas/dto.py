@@ -148,9 +148,17 @@ class AgentDecisionOut(BaseModel):
     context: dict = {}
 
 
+class LlmAdvice(BaseModel):
+    action: Literal["BUY", "SELL", "WAIT"]
+    confidence: float = Field(ge=0, le=1)
+    rationale: str
+    invalid_if: list[str] = []
+
+
 class AgentAnalysisOut(BaseModel):
     symbol: str
     market: AgentDecisionOut
+    llm: AgentDecisionOut | None = None
     risk: AgentDecisionOut
     final_action: Literal["BUY", "SELL", "WAIT", "BLOCK"]
     final_confidence: float
