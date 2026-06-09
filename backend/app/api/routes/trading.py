@@ -6,7 +6,7 @@ from app.api.deps import current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
-from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut
+from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
 from app.services.backtesting import BacktestingService
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
@@ -25,8 +25,14 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         min_rating=user_settings.min_rating,
         stop_loss_percent=user_settings.stop_loss_percent,
         take_profit_percent=user_settings.take_profit_percent,
+        trailing_stop_percent=user_settings.trailing_stop_percent,
     )
     return await TradingEngine().run_once(db, risk_settings)
+
+
+@router.post("/tick", response_model=TradingTickOut)
+async def tick(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingTickOut:
+    return await TradingEngine().manage_open_positions(db)
 
 
 @router.get("/status", response_model=SystemStatusOut)

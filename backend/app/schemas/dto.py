@@ -31,6 +31,7 @@ class SettingsIn(BaseModel):
     scan_interval: Literal["1m", "5m", "15m", "1h"]
     stop_loss_percent: float = Field(ge=0.1, le=25)
     take_profit_percent: float = Field(ge=0.1, le=100)
+    trailing_stop_percent: float = Field(default=0.8, ge=0, le=20)
 
 
 class SettingsOut(BaseModel):
@@ -47,6 +48,7 @@ class SettingsOut(BaseModel):
     scan_interval: str
     stop_loss_percent: float
     take_profit_percent: float
+    trailing_stop_percent: float
 
 
 class MarketCoin(BaseModel):
@@ -85,6 +87,25 @@ class TradingRunOut(BaseModel):
     opened: int
     skipped: int
     decisions: list[TradingDecision]
+
+
+class PositionUpdateOut(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    previous_price: float
+    current_price: float
+    pnl: float
+    status: str
+    exit_reason: str | None = None
+    stop: float
+    take: float
+
+
+class TradingTickOut(BaseModel):
+    checked: int
+    closed: int
+    updated: list[PositionUpdateOut]
 
 
 class SystemStatusOut(BaseModel):
@@ -127,9 +148,14 @@ class PositionOut(BaseModel):
     volume: float
     stop: float
     take: float
+    trailing_stop_percent: float
+    highest_price: float
+    lowest_price: float
     pnl: float
     status: str
+    exit_reason: str | None = None
     entered_at: datetime
+    closed_at: datetime | None = None
 
 
 class LogOut(BaseModel):

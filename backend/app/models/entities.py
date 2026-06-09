@@ -45,6 +45,7 @@ class UserSettings(Base):
     scan_interval: Mapped[str] = mapped_column(String(16), default="5m")
     stop_loss_percent: Mapped[float] = mapped_column(Float, default=1.5)
     take_profit_percent: Mapped[float] = mapped_column(Float, default=3.0)
+    trailing_stop_percent: Mapped[float] = mapped_column(Float, default=0.8)
 
     user: Mapped[User] = relationship(back_populates="settings")
 
@@ -60,9 +61,14 @@ class Position(Base):
     volume: Mapped[float] = mapped_column(Float)
     stop: Mapped[float] = mapped_column(Float)
     take: Mapped[float] = mapped_column(Float)
+    trailing_stop_percent: Mapped[float] = mapped_column(Float, default=0.0)
+    highest_price: Mapped[float] = mapped_column(Float, default=0.0)
+    lowest_price: Mapped[float] = mapped_column(Float, default=0.0)
     pnl: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str] = mapped_column(String(16), default=PositionStatus.OPEN.value)
+    exit_reason: Mapped[str | None] = mapped_column(String(32))
     entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Trade(Base):

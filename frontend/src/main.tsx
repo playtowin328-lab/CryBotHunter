@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, api, BacktestReport, Dashboard, LogEntry, MarketCoin, SystemStatus, TradingRun } from "./api/client";
+import { ActionMessage, api, BacktestReport, Dashboard, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "logs" | "settings";
@@ -108,6 +108,7 @@ function DashboardView() {
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
   const [run, setRun] = React.useState<TradingRun | null>(null);
+  const [tick, setTick] = React.useState<TradingTick | null>(null);
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
@@ -143,10 +144,25 @@ function DashboardView() {
     }
   }
 
+  async function managePositions() {
+    try {
+      setLoading(true);
+      setError("");
+      const { data: result } = await api.post<TradingTick>("/trading/tick");
+      setTick(result);
+      await load();
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+        <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
@@ -168,6 +184,12 @@ function DashboardView() {
           <div className="table-title">Last Run: scanned {run.scanned}, opened {run.opened}, skipped {run.skipped}</div>
           <DecisionList run={run} />
         </div>
+      )}
+      {tick && (
+        <Alert
+          tone={tick.closed > 0 ? "good" : "good"}
+          text={`Position manager checked ${tick.checked} position(s), closed ${tick.closed}, updated ${tick.updated.length}.`}
+        />
       )}
       <div className="two-col">
         <PositionsTable data={data} onChanged={load} />
@@ -317,7 +339,8 @@ function SettingsView() {
     min_rating: 80,
     scan_interval: "5m",
     stop_loss_percent: 1.5,
-    take_profit_percent: 3
+    take_profit_percent: 3,
+    trailing_stop_percent: 0.8
   });
   const [message, setMessage] = React.useState<ActionMessage | null>(null);
   const [error, setError] = React.useState("");
@@ -333,7 +356,8 @@ function SettingsView() {
         min_rating: data.min_rating,
         scan_interval: data.scan_interval,
         stop_loss_percent: data.stop_loss_percent,
-        take_profit_percent: data.take_profit_percent
+        take_profit_percent: data.take_profit_percent,
+        trailing_stop_percent: data.trailing_stop_percent
       }));
     }).catch((err) => setError(readError(err)));
   }, []);
@@ -385,6 +409,7 @@ function SettingsView() {
           <label className="field">Minimum rating<input type="number" value={settings.min_rating} onChange={(event) => update("min_rating", Number(event.target.value))} /></label>
           <label className="field">Stop loss<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
           <label className="field">Take profit<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
+          <label className="field">Trailing stop<input type="number" value={settings.trailing_stop_percent} onChange={(event) => update("trailing_stop_percent", Number(event.target.value))} /></label>
           <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
         </div>
         <div className="panel-block">

@@ -12,6 +12,7 @@ class RiskSettings:
     min_rating: int
     stop_loss_percent: float
     take_profit_percent: float
+    trailing_stop_percent: float
 
 
 class RiskManager:

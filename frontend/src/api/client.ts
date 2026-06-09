@@ -21,9 +21,14 @@ export type Position = {
   volume: number;
   stop: number;
   take: number;
+  trailing_stop_percent: number;
+  highest_price: number;
+  lowest_price: number;
   pnl: number;
   status: string;
+  exit_reason?: string | null;
   entered_at: string;
+  closed_at?: string | null;
 };
 
 export type Dashboard = {
@@ -48,6 +53,23 @@ export type TradingRun = {
   opened: number;
   skipped: number;
   decisions: TradingDecision[];
+};
+
+export type TradingTick = {
+  checked: number;
+  closed: number;
+  updated: Array<{
+    id: number;
+    symbol: string;
+    side: string;
+    previous_price: number;
+    current_price: number;
+    pnl: number;
+    status: string;
+    exit_reason?: string | null;
+    stop: number;
+    take: number;
+  }>;
 };
 
 export type SystemStatus = {

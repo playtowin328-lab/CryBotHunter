@@ -34,6 +34,7 @@ Create one Railway project with four services:
 - `backend` service from this GitHub repository with root directory `backend`
 - `frontend` service from this GitHub repository with root directory `frontend`
 - `telegram-bot` worker service from this GitHub repository with root directory `backend`
+- `trader-worker` worker service from this GitHub repository with root directory `backend`
 
 Backend variables:
 
@@ -48,6 +49,7 @@ PAPER_TRADING=true
 CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
+TRADER_LOOP_SECONDS=60
 ```
 
 Frontend variables:
@@ -68,6 +70,21 @@ ENCRYPTION_KEY=the-same-fernet-key-as-backend
 PAPER_TRADING=true
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
+```
+
+Trader worker variables:
+
+```env
+APP_PROCESS=trader
+ENVIRONMENT=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=the-same-secret-as-backend
+ENCRYPTION_KEY=the-same-fernet-key-as-backend
+PAPER_TRADING=true
+TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
+TELEGRAM_ALLOWED_CHAT_IDS=123456789
+TRADER_LOOP_SECONDS=60
 ```
 
 Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
@@ -104,6 +121,7 @@ Supported commands:
 ## Current MVP Behavior
 
 - Uses paper trading by default through `PAPER_TRADING=true`.
+- Supports a dedicated `APP_PROCESS=trader` worker that loops automatically, manages open positions, and scans for new entries.
 - Registers/logs in users with JWT.
 - Stores exchange API keys encrypted and returns only masked values.
 - Scans synthetic market data and calculates ratings from volume, trend, volatility, volume growth, and liquidity.
@@ -111,6 +129,7 @@ Supported commands:
 - Applies risk checks before opening paper positions.
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
+- Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from hashlib import sha256
 from random import Random
 
 import pandas as pd
@@ -6,9 +8,6 @@ from app.schemas.dto import MarketCoin
 
 
 class MarketScanner:
-    def __init__(self) -> None:
-        self._rng = Random(42)
-
     async def scan(self, symbols: list[str] | None = None) -> list[MarketCoin]:
         symbols = symbols or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
         rows = [self._synthetic_row(symbol) for symbol in symbols]
@@ -42,22 +41,25 @@ class MarketScanner:
         return candles
 
     def _synthetic_row(self, symbol: str) -> dict[str, float | str]:
+        minute_bucket = int(datetime.now(timezone.utc).timestamp() // 60)
+        digest = sha256(f"{symbol}:{minute_bucket}".encode()).hexdigest()
+        rng = Random(int(digest[:12], 16))
         base = {"BTC/USDT": 68000, "ETH/USDT": 3600, "SOL/USDT": 155, "BNB/USDT": 620}.get(symbol, 2.5)
-        shift = self._rng.uniform(-0.04, 0.06)
+        shift = rng.uniform(-0.04, 0.06)
         price = base * (1 + shift)
-        ema200 = price * self._rng.uniform(0.94, 1.03)
-        ema50 = price * self._rng.uniform(0.97, 1.04)
+        ema200 = price * rng.uniform(0.94, 1.03)
+        ema50 = price * rng.uniform(0.97, 1.04)
         return {
             "symbol": symbol,
             "price": round(price, 4),
-            "volume_24h": self._rng.uniform(300_000_000, 3_000_000_000),
+            "volume_24h": rng.uniform(300_000_000, 3_000_000_000),
             "price_change_percent": shift * 100,
-            "atr": price * self._rng.uniform(0.01, 0.05),
-            "rsi": self._rng.uniform(28, 74),
-            "ema20": price * self._rng.uniform(0.98, 1.02),
+            "atr": price * rng.uniform(0.01, 0.05),
+            "rsi": rng.uniform(28, 74),
+            "ema20": price * rng.uniform(0.98, 1.02),
             "ema50": ema50,
             "ema200": ema200,
-            "macd": self._rng.uniform(-20, 20),
-            "funding_rate": self._rng.uniform(-0.02, 0.02),
-            "open_interest": self._rng.uniform(200_000_000, 2_000_000_000),
+            "macd": rng.uniform(-20, 20),
+            "funding_rate": rng.uniform(-0.02, 0.02),
+            "open_interest": rng.uniform(200_000_000, 2_000_000_000),
         }

@@ -32,6 +32,7 @@ services:
       PAPER_TRADING: ${PAPER_TRADING:-true}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TRADER_LOOP_SECONDS: ${TRADER_LOOP_SECONDS:-60}
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,6 +54,27 @@ services:
       PAPER_TRADING: ${PAPER_TRADING:-true}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TRADER_LOOP_SECONDS: ${TRADER_LOOP_SECONDS:-60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  trader:
+    build: ./backend
+    profiles: ["trader"]
+    environment:
+      APP_PROCESS: trader
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
+      PAPER_TRADING: ${PAPER_TRADING:-true}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+      TRADER_LOOP_SECONDS: ${TRADER_LOOP_SECONDS:-60}
     depends_on:
       postgres:
         condition: service_healthy

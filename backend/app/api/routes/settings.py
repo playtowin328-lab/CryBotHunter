@@ -29,6 +29,7 @@ async def update_user_settings(payload: SettingsIn, user: User = Depends(current
     settings.scan_interval = payload.scan_interval
     settings.stop_loss_percent = payload.stop_loss_percent
     settings.take_profit_percent = payload.take_profit_percent
+    settings.trailing_stop_percent = payload.trailing_stop_percent
     if payload.api_key:
         settings.api_key_encrypted = encrypt_secret(payload.api_key)
     if payload.secret_key:
@@ -77,4 +78,5 @@ def _serialize(settings: UserSettings) -> SettingsOut:
         scan_interval=settings.scan_interval,
         stop_loss_percent=settings.stop_loss_percent,
         take_profit_percent=settings.take_profit_percent,
+        trailing_stop_percent=settings.trailing_stop_percent,
     )
