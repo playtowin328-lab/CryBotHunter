@@ -35,6 +35,44 @@ export type Dashboard = {
   active_positions: Position[];
 };
 
+export type TradingDecision = {
+  symbol: string;
+  signal: "BUY" | "SELL" | "WAIT";
+  score: number;
+  action: "OPENED" | "SKIPPED";
+  reason: string;
+};
+
+export type TradingRun = {
+  scanned: number;
+  opened: number;
+  skipped: number;
+  decisions: TradingDecision[];
+};
+
+export type SystemStatus = {
+  paper_trading: boolean;
+  exchange: string;
+  telegram_enabled: boolean;
+  telegram_chat_count: number;
+  open_positions: number;
+  daily_pnl: number;
+};
+
+export type BacktestReport = {
+  win_rate: number;
+  profit_factor: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  average_profit: number;
+  average_loss: number;
+};
+
+export type ActionMessage = {
+  ok: boolean;
+  message: string;
+};
+
 export type MarketCoin = {
   symbol: string;
   price: number;

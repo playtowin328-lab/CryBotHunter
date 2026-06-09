@@ -21,15 +21,23 @@ class TelegramNotifier:
     def enabled(self) -> bool:
         return bool(self.settings.telegram_bot_token)
 
-    async def send_message(self, chat_id: int, text: str) -> None:
+    async def send_message(self, chat_id: int, text: str) -> bool:
         if not self.enabled:
-            return
-        async with httpx.AsyncClient(timeout=15) as client:
-            await client.post(f"{self.base_url}/sendMessage", json={"chat_id": chat_id, "text": text})
+            return False
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(f"{self.base_url}/sendMessage", json={"chat_id": chat_id, "text": text})
+                response.raise_for_status()
+                return True
+        except httpx.HTTPError:
+            logger.exception("Telegram sendMessage failed for chat_id=%s", chat_id)
+            return False
 
-    async def broadcast(self, text: str) -> None:
+    async def broadcast(self, text: str) -> int:
+        delivered = 0
         for chat_id in self.settings.telegram_allowed_chat_ids:
-            await self.send_message(chat_id, text)
+            delivered += int(await self.send_message(chat_id, text))
+        return delivered
 
 
 class TelegramCommandService:
@@ -38,31 +46,47 @@ class TelegramCommandService:
         if not command:
             return "Send a command: /balance, /stats, /positions."
         command = command.split()[0].lower()
-        if command == "/start":
-            return "CryBotHunter online. Commands: /chatid, /balance, /stats, /positions, /stop"
+        if command in {"/start", "/help"}:
+            return (
+                "CryBotHunter online.\n\n"
+                "Commands:\n"
+                "/status - system mode and open positions\n"
+                "/balance - paper/live balance\n"
+                "/stats - trading statistics\n"
+                "/positions - active positions\n"
+                "/chatid - show this Telegram chat id\n"
+                "/stop - deployment hint"
+            )
         if command == "/stop":
             return "Notifications stay controlled by Railway variables. Stop the telegram service to disable polling."
+        if command == "/status":
+            settings = get_settings()
+            open_positions = (
+                await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
+            ).scalar_one()
+            mode = "paper trading" if settings.paper_trading else "live trading"
+            return f"Status: online\nMode: {mode}\nOpen positions: {int(open_positions)}"
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
-            return "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
+            return "Balance:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
         if command == "/stats":
             trades_count, pnl = (
                 await db.execute(select(func.count(Trade.id), func.coalesce(func.sum(Trade.profit), 0.0)))
             ).one()
             wins = (await db.execute(select(func.count(Trade.id)).where(Trade.profit > 0))).scalar_one()
             win_rate = (int(wins) / int(trades_count) * 100) if trades_count else 0
-            return f"Trades: {trades_count}\nPnL: {float(pnl):.2f}\nWin Rate: {win_rate:.2f}%"
+            return f"Stats:\nTrades: {trades_count}\nPnL: {float(pnl):.2f}\nWin Rate: {win_rate:.2f}%"
         if command == "/positions":
             positions = (
                 await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))
             ).scalars().all()
             if not positions:
                 return "No open positions."
-            return "\n".join(
-                f"#{item.id} {item.symbol} {item.side} entry={item.entry_price:.4f} pnl={item.pnl:.2f}"
+            return "Open positions:\n" + "\n".join(
+                f"#{item.id} {item.symbol} {item.side} entry={item.entry_price:.4f} stop={item.stop:.4f} take={item.take:.4f} pnl={item.pnl:.2f}"
                 for item in positions
             )
-        return "Unknown command. Use /balance, /stats, /positions."
+        return "Unknown command. Use /help."
 
 
 class TelegramPollingBot:
@@ -98,6 +122,8 @@ class TelegramPollingBot:
     async def _handle_update(self, update: dict, session_factory) -> None:
         message = update.get("message") or {}
         chat = message.get("chat") or {}
+        if "id" not in chat:
+            return
         chat_id = int(chat.get("id"))
         text = message.get("text", "").strip()
 

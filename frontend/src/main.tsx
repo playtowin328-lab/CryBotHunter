@@ -1,7 +1,21 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, BarChart3, Bot, KeyRound, Play, RefreshCw, Settings, ShieldAlert, Terminal } from "lucide-react";
-import { api, Dashboard, LogEntry, MarketCoin } from "./api/client";
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  CheckCircle2,
+  KeyRound,
+  LogOut,
+  Play,
+  RefreshCw,
+  Save,
+  Settings,
+  ShieldCheck,
+  Terminal,
+  XCircle
+} from "lucide-react";
+import { ActionMessage, api, BacktestReport, Dashboard, LogEntry, MarketCoin, SystemStatus, TradingRun } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "logs" | "settings";
@@ -11,21 +25,34 @@ function App() {
   const [tokenReady, setTokenReady] = React.useState(Boolean(localStorage.getItem("token")));
   const [email, setEmail] = React.useState("demo@example.com");
   const [password, setPassword] = React.useState("password123");
+  const [error, setError] = React.useState("");
 
   async function login(mode: "login" | "register") {
-    const { data } = await api.post(`/auth/${mode}`, { email, password });
-    localStorage.setItem("token", data.access_token);
-    setTokenReady(true);
+    try {
+      setError("");
+      const { data } = await api.post(`/auth/${mode}`, { email, password });
+      localStorage.setItem("token", data.access_token);
+      setTokenReady(true);
+    } catch (err) {
+      setError(readError(err));
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("token");
+    setTokenReady(false);
   }
 
   if (!tokenReady) {
     return (
-      <main className="min-h-screen bg-panel text-ink">
-        <section className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-5">
+      <main className="auth-shell">
+        <section className="auth-panel">
           <div>
-            <h1 className="text-3xl font-semibold tracking-normal">Crypto AI Trader</h1>
-            <p className="mt-2 text-sm text-slate-600">Trading control panel</p>
+            <div className="brand-mark"><Bot size={22} /> CryBotHunter</div>
+            <h1>Crypto AI Trader</h1>
+            <p>Secure trading control panel with paper mode, risk checks and Telegram operations.</p>
           </div>
+          {error && <Alert tone="danger" text={error} />}
           <label className="field">
             Email
             <input value={email} onChange={(event) => setEmail(event.target.value)} />
@@ -34,13 +61,9 @@ function App() {
             Password
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </label>
-          <div className="flex gap-2">
-            <button className="btn primary flex-1" onClick={() => login("login")}>
-              <KeyRound size={16} /> Login
-            </button>
-            <button className="btn flex-1" onClick={() => login("register")}>
-              Register
-            </button>
+          <div className="action-row">
+            <button className="btn primary flex-1" onClick={() => login("login")}><KeyRound size={16} /> Login</button>
+            <button className="btn flex-1" onClick={() => login("register")}>Register</button>
           </div>
         </section>
       </main>
@@ -48,21 +71,20 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-panel text-ink">
-      <nav className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-3">
-          <div className="flex items-center gap-2 font-semibold">
-            <Bot size={20} /> Crypto AI Trader
-          </div>
-          <div className="flex gap-1">
+    <main className="app-shell">
+      <nav className="topbar">
+        <div className="topbar-inner">
+          <div className="brand-mark"><Bot size={20} /> CryBotHunter</div>
+          <div className="nav-group">
             <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon={<Activity size={16} />} label="Dashboard" />
             <NavButton active={view === "market"} onClick={() => setView("market")} icon={<BarChart3 size={16} />} label="Market" />
             <NavButton active={view === "logs"} onClick={() => setView("logs")} icon={<Terminal size={16} />} label="Logs" />
             <NavButton active={view === "settings"} onClick={() => setView("settings")} icon={<Settings size={16} />} label="Settings" />
+            <button className="icon-btn" onClick={logout} title="Logout"><LogOut size={16} /></button>
           </div>
         </div>
       </nav>
-      <div className="mx-auto max-w-7xl px-5 py-5">
+      <div className="page">
         {view === "dashboard" && <DashboardView />}
         {view === "market" && <MarketView />}
         {view === "logs" && <LogsView />}
@@ -83,79 +105,166 @@ function NavButton(props: { active: boolean; onClick: () => void; icon: React.Re
 
 function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
-  const load = React.useCallback(async () => setData((await api.get("/dashboard")).data), []);
+  const [status, setStatus] = React.useState<SystemStatus | null>(null);
+  const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
+  const [run, setRun] = React.useState<TradingRun | null>(null);
+  const [error, setError] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      setError("");
+      const [dashboardRes, statusRes, backtestRes] = await Promise.all([
+        api.get("/dashboard"),
+        api.get("/trading/status"),
+        api.get("/trading/backtest/sample")
+      ]);
+      setData(dashboardRes.data);
+      setStatus(statusRes.data);
+      setBacktest(backtestRes.data);
+    } catch (err) {
+      setError(readError(err));
+    }
+  }, []);
+
   React.useEffect(() => void load(), [load]);
 
   async function runTrading() {
-    await api.post("/trading/run-once");
-    await load();
+    try {
+      setLoading(true);
+      setError("");
+      const { data: result } = await api.post<TradingRun>("/trading/run-once");
+      setRun(result);
+      await load();
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <section className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="section-title">Dashboard</h2>
-        <button className="btn primary" onClick={runTrading}>
-          <Play size={16} /> Run scan
-        </button>
+      <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
+        <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+        <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
+      </Header>
+      {error && <Alert tone="danger" text={error} />}
+      <div className="status-strip">
+        <StatusItem label="Mode" value={status?.paper_trading ? "Paper trading" : "Live trading"} good={status?.paper_trading ?? true} />
+        <StatusItem label="Exchange" value={status?.exchange ?? "-"} />
+        <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} chat` : "Disabled"} good={Boolean(status?.telegram_enabled)} />
+        <StatusItem label="Open positions" value={String(status?.open_positions ?? 0)} />
       </div>
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="metric-grid">
         <Metric label="Balance" value={`$${fmt(data?.balance)}`} />
-        <Metric label="PnL day" value={`$${fmt(data?.pnl_day)}`} />
+        <Metric label="PnL day" value={`$${fmt(data?.pnl_day)}`} tone={(data?.pnl_day ?? 0) >= 0 ? "good" : "bad"} />
         <Metric label="PnL week" value={`$${fmt(data?.pnl_week)}`} />
         <Metric label="Win Rate" value={`${fmt(data?.win_rate)}%`} />
         <Metric label="Trades" value={String(data?.trades_count ?? 0)} />
       </div>
-      <div className="table-wrap">
-        <div className="table-title">Active Positions</div>
-        <table>
-          <thead>
-            <tr><th>Coin</th><th>Entry</th><th>Current</th><th>PnL</th><th></th></tr>
-          </thead>
-          <tbody>
-            {(data?.active_positions ?? []).map((position) => (
-              <tr key={position.id}>
-                <td>{position.symbol}</td>
-                <td>${fmt(position.entry_price)}</td>
-                <td>${fmt(position.current_price)}</td>
-                <td className={position.pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(position.pnl)}</td>
-                <td><button className="btn compact" onClick={async () => { await api.post(`/positions/${position.id}/close`); await load(); }}>Close</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {run && (
+        <div className="panel-block">
+          <div className="table-title">Last Run: scanned {run.scanned}, opened {run.opened}, skipped {run.skipped}</div>
+          <DecisionList run={run} />
+        </div>
+      )}
+      <div className="two-col">
+        <PositionsTable data={data} onChanged={load} />
+        <div className="panel-block">
+          <div className="table-title">Sample Backtest</div>
+          <div className="mini-grid">
+            <Metric label="Win Rate" value={`${fmt(backtest?.win_rate)}%`} />
+            <Metric label="Profit Factor" value={fmt(backtest?.profit_factor)} />
+            <Metric label="Max Drawdown" value={`$${fmt(backtest?.max_drawdown)}`} tone="bad" />
+            <Metric label="Avg Profit" value={`$${fmt(backtest?.average_profit)}`} tone="good" />
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
+function PositionsTable(props: { data: Dashboard | null; onChanged: () => Promise<void> }) {
+  const positions = props.data?.active_positions ?? [];
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Active Positions</div>
+      <table>
+        <thead>
+          <tr><th>Coin</th><th>Side</th><th>Entry</th><th>Stop</th><th>Take</th><th>PnL</th><th></th></tr>
+        </thead>
+        <tbody>
+          {positions.map((position) => (
+            <tr key={position.id}>
+              <td className="font-semibold">{position.symbol}</td>
+              <td><span className={`pill ${position.side === "LONG" ? "buy" : "sell"}`}>{position.side}</span></td>
+              <td>${fmt(position.entry_price)}</td>
+              <td>${fmt(position.stop)}</td>
+              <td>${fmt(position.take)}</td>
+              <td className={position.pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(position.pnl)}</td>
+              <td><button className="btn compact" onClick={async () => { await api.post(`/positions/${position.id}/close`); await props.onChanged(); }}>Close</button></td>
+            </tr>
+          ))}
+          {!positions.length && <EmptyRow cols={7} text="No active positions yet" />}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DecisionList({ run }: { run: TradingRun }) {
+  return (
+    <div className="decision-list">
+      {run.decisions.map((item) => (
+        <div className="decision" key={item.symbol}>
+          <span className={`pill ${item.signal === "BUY" ? "buy" : item.signal === "SELL" ? "sell" : ""}`}>{item.signal}</span>
+          <strong>{item.symbol}</strong>
+          <span>score {item.score}</span>
+          <span className={item.action === "OPENED" ? "text-accent" : "text-slate-500"}>{item.action}</span>
+          <span className="truncate">{item.reason}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MarketView() {
   const [coins, setCoins] = React.useState<MarketCoin[]>([]);
-  const load = React.useCallback(async () => setCoins((await api.get("/market/scan")).data), []);
+  const [error, setError] = React.useState("");
+  const load = React.useCallback(async () => {
+    try {
+      setError("");
+      setCoins((await api.get("/market/scan")).data);
+    } catch (err) {
+      setError(readError(err));
+    }
+  }, []);
   React.useEffect(() => void load(), [load]);
   return (
     <section className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="section-title">Market Scanner</h2>
+      <Header title="Market Scanner" subtitle="Rating, trend and indicator snapshot">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
-      </div>
+      </Header>
+      {error && <Alert tone="danger" text={error} />}
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Coin</th><th>Price</th><th>24h Volume</th><th>Change</th><th>RSI</th><th>EMA50/200</th><th>Rating</th></tr>
+            <tr><th>Coin</th><th>Price</th><th>24h Volume</th><th>Change</th><th>RSI</th><th>Trend</th><th>Rating</th></tr>
           </thead>
           <tbody>
             {coins.map((coin) => (
               <tr key={coin.symbol}>
-                <td>{coin.symbol}</td>
+                <td className="font-semibold">{coin.symbol}</td>
                 <td>${fmt(coin.price)}</td>
                 <td>${fmt(coin.volume_24h)}</td>
                 <td className={coin.price_change_percent >= 0 ? "text-accent" : "text-danger"}>{fmt(coin.price_change_percent)}%</td>
                 <td>{fmt(coin.rsi)}</td>
-                <td>{fmt(coin.ema50)} / {fmt(coin.ema200)}</td>
+                <td><span className={`pill ${coin.ema50 > coin.ema200 ? "buy" : "sell"}`}>{coin.ema50 > coin.ema200 ? "Bull" : "Bear"}</span></td>
                 <td><span className="score">{coin.rating}</span></td>
               </tr>
             ))}
+            {!coins.length && <EmptyRow cols={7} text="No market data loaded" />}
           </tbody>
         </table>
       </div>
@@ -165,17 +274,30 @@ function MarketView() {
 
 function LogsView() {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
-  React.useEffect(() => void api.get("/logs").then(({ data }) => setLogs(data)), []);
+  const [error, setError] = React.useState("");
+  const load = React.useCallback(async () => {
+    try {
+      setError("");
+      setLogs((await api.get("/logs")).data);
+    } catch (err) {
+      setError(readError(err));
+    }
+  }, []);
+  React.useEffect(() => void load(), [load]);
   return (
     <section className="space-y-5">
-      <h2 className="section-title">Logs</h2>
+      <Header title="Logs" subtitle="Signals, trading actions and operational events">
+        <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+      </Header>
+      {error && <Alert tone="danger" text={error} />}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
           <tbody>
             {logs.map((log) => (
-              <tr key={log.id}><td>{new Date(log.created_at).toLocaleString()}</td><td>{log.level}</td><td>{log.message}</td></tr>
+              <tr key={log.id}><td>{new Date(log.created_at).toLocaleString()}</td><td><span className="pill">{log.level}</span></td><td>{log.message}</td></tr>
             ))}
+            {!logs.length && <EmptyRow cols={3} text="No logs yet" />}
           </tbody>
         </table>
       </div>
@@ -197,6 +319,8 @@ function SettingsView() {
     stop_loss_percent: 1.5,
     take_profit_percent: 3
   });
+  const [message, setMessage] = React.useState<ActionMessage | null>(null);
+  const [error, setError] = React.useState("");
 
   React.useEffect(() => {
     void api.get("/settings").then(({ data }) => {
@@ -211,7 +335,7 @@ function SettingsView() {
         stop_loss_percent: data.stop_loss_percent,
         take_profit_percent: data.take_profit_percent
       }));
-    });
+    }).catch((err) => setError(readError(err)));
   }, []);
 
   function update<K extends keyof typeof settings>(key: K, value: (typeof settings)[K]) {
@@ -219,40 +343,99 @@ function SettingsView() {
   }
 
   async function save() {
-    await api.put("/settings", settings);
-    setSettings((current) => ({ ...current, api_key: "", secret_key: "", passphrase: "" }));
+    try {
+      setError("");
+      await api.put("/settings", settings);
+      setMessage({ ok: true, message: "Settings saved" });
+      setSettings((current) => ({ ...current, api_key: "", secret_key: "", passphrase: "" }));
+    } catch (err) {
+      setError(readError(err));
+    }
+  }
+
+  async function testTelegram() {
+    try {
+      setError("");
+      setMessage((await api.post<ActionMessage>("/settings/telegram/test")).data);
+    } catch (err) {
+      setError(readError(err));
+    }
   }
 
   return (
-    <section className="grid gap-5 lg:grid-cols-2">
-      <div className="panel-block">
-        <h2 className="section-title">Exchange Keys</h2>
-        <label className="field">Exchange<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
-        <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder="masked after save" /></label>
-        <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder="masked after save" /></label>
-        <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder="optional" /></label>
-        <button className="btn primary" onClick={save}><ShieldAlert size={16} /> Save encrypted</button>
-      </div>
-      <div className="panel-block">
-        <h2 className="section-title">Risk</h2>
-        <label className="field">Risk per trade<input type="number" value={settings.risk_percent} onChange={(event) => update("risk_percent", Number(event.target.value))} /></label>
-        <label className="field">Daily risk<input type="number" value={settings.daily_risk_percent} onChange={(event) => update("daily_risk_percent", Number(event.target.value))} /></label>
-        <label className="field">Max positions<input type="number" value={settings.max_positions} onChange={(event) => update("max_positions", Number(event.target.value))} /></label>
-        <label className="field">Minimum rating<input type="number" value={settings.min_rating} onChange={(event) => update("min_rating", Number(event.target.value))} /></label>
-        <label className="field">Stop loss<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
-        <label className="field">Take profit<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
-        <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
+    <section className="space-y-5">
+      <Header title="Settings" subtitle="Exchange credentials, risk model and Telegram checks">
+        <button className="btn primary" onClick={save}><Save size={16} /> Save</button>
+      </Header>
+      {error && <Alert tone="danger" text={error} />}
+      {message && <Alert tone={message.ok ? "good" : "danger"} text={message.message} />}
+      <div className="settings-grid">
+        <div className="panel-block">
+          <div className="table-title">Exchange Keys</div>
+          <label className="field">Exchange<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
+          <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder="masked after save" /></label>
+          <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder="masked after save" /></label>
+          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder="optional" /></label>
+        </div>
+        <div className="panel-block">
+          <div className="table-title">Risk Controls</div>
+          <label className="field">Risk per trade<input type="number" value={settings.risk_percent} onChange={(event) => update("risk_percent", Number(event.target.value))} /></label>
+          <label className="field">Daily risk<input type="number" value={settings.daily_risk_percent} onChange={(event) => update("daily_risk_percent", Number(event.target.value))} /></label>
+          <label className="field">Max positions<input type="number" value={settings.max_positions} onChange={(event) => update("max_positions", Number(event.target.value))} /></label>
+          <label className="field">Minimum rating<input type="number" value={settings.min_rating} onChange={(event) => update("min_rating", Number(event.target.value))} /></label>
+          <label className="field">Stop loss<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
+          <label className="field">Take profit<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
+          <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
+        </div>
+        <div className="panel-block">
+          <div className="table-title">Telegram</div>
+          <p className="muted">Token and allowed chat IDs are configured in Railway variables. Use this check after deploying the telegram worker.</p>
+          <button className="btn" onClick={testTelegram}><ShieldCheck size={16} /> Send test notification</button>
+        </div>
       </div>
     </section>
   );
 }
 
-function Metric(props: { label: string; value: string }) {
-  return <div className="metric"><span>{props.label}</span><strong>{props.value}</strong></div>;
+function Header(props: { title: string; subtitle: string; children?: React.ReactNode }) {
+  return (
+    <div className="header">
+      <div>
+        <h2>{props.title}</h2>
+        <p>{props.subtitle}</p>
+      </div>
+      <div className="action-row">{props.children}</div>
+    </div>
+  );
+}
+
+function Metric(props: { label: string; value: string; tone?: "good" | "bad" }) {
+  return <div className={`metric ${props.tone ?? ""}`}><span>{props.label}</span><strong>{props.value}</strong></div>;
+}
+
+function StatusItem(props: { label: string; value: string; good?: boolean }) {
+  const icon = props.good === false ? <XCircle size={16} /> : <CheckCircle2 size={16} />;
+  return <div className="status-item">{icon}<span>{props.label}</span><strong>{props.value}</strong></div>;
+}
+
+function Alert(props: { tone: "good" | "danger"; text: string }) {
+  return <div className={`alert ${props.tone}`}>{props.text}</div>;
+}
+
+function EmptyRow(props: { cols: number; text: string }) {
+  return <tr><td colSpan={props.cols} className="empty">{props.text}</td></tr>;
 }
 
 function fmt(value: number | undefined) {
   return Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function readError(err: unknown) {
+  if (typeof err === "object" && err && "response" in err) {
+    const response = (err as { response?: { data?: { detail?: string } } }).response;
+    return response?.data?.detail ?? "Request failed";
+  }
+  return "Request failed";
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

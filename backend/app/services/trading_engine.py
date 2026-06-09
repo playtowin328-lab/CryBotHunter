@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.entities import LogEntry, Position, Signal, Trade
-from app.schemas.dto import MarketCoin
+from app.schemas.dto import MarketCoin, TradingDecision, TradingRunOut
 from app.services.exchange import ExchangeClient
 from app.services.market_scanner import MarketScanner
 from app.services.risk_manager import RiskManager, RiskSettings
@@ -18,30 +18,37 @@ class TradingEngine:
         self.exchange = ExchangeClient()
         self.telegram = TelegramNotifier()
 
-    async def run_once(self, db: AsyncSession, settings: RiskSettings) -> list[Signal]:
+    async def run_once(self, db: AsyncSession, settings: RiskSettings) -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
         coins = await self.scanner.scan()
         open_count = await self._open_positions_count(db)
         daily_pnl = await self._daily_pnl(db)
-        created: list[Signal] = []
+        decisions: list[TradingDecision] = []
 
         for coin in sorted(coins, key=lambda item: item.rating, reverse=True):
             signal = self.strategy.evaluate(coin)
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
-            created.append(db_signal)
 
             accepted, reason = self.risk.can_open(signal, settings, open_count, daily_pnl)
             if accepted:
                 await self._open_position(db, coin, signal.signal, balance, settings)
                 open_count += 1
                 db.add(LogEntry(level="INFO", message=f"Opened {signal.signal} paper position for {coin.symbol}"))
-                await self.telegram.broadcast(f"Position opened: {signal.signal} {coin.symbol} score={signal.score}")
+                message = f"Position opened: {signal.signal} {coin.symbol} score={signal.score}"
+                await self.telegram.broadcast(message)
+                decisions.append(
+                    TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="OPENED", reason=reason)
+                )
             else:
                 db.add(LogEntry(level="INFO", message=f"Skipped {coin.symbol}: {reason}"))
+                decisions.append(
+                    TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="SKIPPED", reason=reason)
+                )
 
         await db.commit()
-        return created
+        opened = sum(1 for item in decisions if item.action == "OPENED")
+        return TradingRunOut(scanned=len(coins), opened=opened, skipped=len(decisions) - opened, decisions=decisions)
 
     async def _open_position(self, db: AsyncSession, coin: MarketCoin, signal: str, balance: float, settings: RiskSettings) -> None:
         side = "LONG" if signal == "BUY" else "SHORT"

@@ -72,6 +72,44 @@ class StrategySignal(BaseModel):
     reasons: list[str] = []
 
 
+class TradingDecision(BaseModel):
+    symbol: str
+    signal: Literal["BUY", "SELL", "WAIT"]
+    score: int
+    action: Literal["OPENED", "SKIPPED"]
+    reason: str
+
+
+class TradingRunOut(BaseModel):
+    scanned: int
+    opened: int
+    skipped: int
+    decisions: list[TradingDecision]
+
+
+class SystemStatusOut(BaseModel):
+    paper_trading: bool
+    exchange: str
+    telegram_enabled: bool
+    telegram_chat_count: int
+    open_positions: int
+    daily_pnl: float
+
+
+class BacktestOut(BaseModel):
+    win_rate: float
+    profit_factor: float
+    sharpe_ratio: float
+    max_drawdown: float
+    average_profit: float
+    average_loss: float
+
+
+class ActionMessage(BaseModel):
+    ok: bool
+    message: str
+
+
 class MlPrediction(BaseModel):
     symbol: str
     long_probability: int

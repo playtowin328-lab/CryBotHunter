@@ -1,19 +1,21 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
+from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.entities import User, UserSettings
-from app.schemas.dto import StrategySignal
+from app.models.entities import Position, User, UserSettings
+from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut
+from app.services.backtesting import BacktestingService
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter(prefix="/trading", tags=["trading"])
 
 
-@router.post("/run-once", response_model=list[StrategySignal])
-async def run_once(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> list[StrategySignal]:
+@router.post("/run-once", response_model=TradingRunOut)
+async def run_once(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingRunOut:
     user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
     risk_settings = RiskSettings(
         balance=1000,
@@ -24,5 +26,28 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         stop_loss_percent=user_settings.stop_loss_percent,
         take_profit_percent=user_settings.take_profit_percent,
     )
-    signals = await TradingEngine().run_once(db, risk_settings)
-    return [StrategySignal(symbol=item.symbol, signal=item.signal, score=item.score) for item in signals]
+    return await TradingEngine().run_once(db, risk_settings)
+
+
+@router.get("/status", response_model=SystemStatusOut)
+async def status(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> SystemStatusOut:
+    settings = get_settings()
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
+    open_positions = (
+        await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
+    ).scalar_one()
+    daily_pnl = await db.execute(select(func.coalesce(func.sum(Position.pnl), 0.0)).where(Position.status == "OPEN"))
+    return SystemStatusOut(
+        paper_trading=settings.paper_trading,
+        exchange=user_settings.exchange,
+        telegram_enabled=bool(settings.telegram_bot_token),
+        telegram_chat_count=len(settings.telegram_allowed_chat_ids),
+        open_positions=int(open_positions),
+        daily_pnl=float(daily_pnl.scalar_one()),
+    )
+
+
+@router.get("/backtest/sample", response_model=BacktestOut)
+async def sample_backtest(_: User = Depends(current_user)) -> BacktestOut:
+    report = BacktestingService().summarize([12, -5, 18, 7, -9, 15, -4, 11, 3, -6])
+    return BacktestOut(**report.__dict__)

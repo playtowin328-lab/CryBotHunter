@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     paper_trading: bool = True
     log_retention_days: int = 90
     telegram_bot_token: str | None = None
-    telegram_allowed_chat_ids: list[int] = []
+    telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
 
     @field_validator("cors_origins", mode="before")
     @classmethod

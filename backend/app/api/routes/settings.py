@@ -6,7 +6,8 @@ from app.api.deps import current_user
 from app.core.security import decrypt_secret, encrypt_secret, mask_secret
 from app.db.session import get_db
 from app.models.entities import User, UserSettings
-from app.schemas.dto import SettingsIn, SettingsOut
+from app.schemas.dto import ActionMessage, SettingsIn, SettingsOut
+from app.services.telegram_bot import TelegramNotifier
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -37,6 +38,19 @@ async def update_user_settings(payload: SettingsIn, user: User = Depends(current
     await db.commit()
     await db.refresh(settings)
     return _serialize(settings)
+
+
+@router.post("/telegram/test", response_model=ActionMessage)
+async def test_telegram(_: User = Depends(current_user)) -> ActionMessage:
+    notifier = TelegramNotifier()
+    if not notifier.enabled:
+        return ActionMessage(ok=False, message="TELEGRAM_BOT_TOKEN is not configured")
+    if not notifier.settings.telegram_allowed_chat_ids:
+        return ActionMessage(ok=False, message="TELEGRAM_ALLOWED_CHAT_IDS is empty")
+    delivered = await notifier.broadcast("CryBotHunter test notification: Telegram is connected.")
+    if delivered == 0:
+        return ActionMessage(ok=False, message="Telegram message was not delivered")
+    return ActionMessage(ok=True, message=f"Telegram test notification sent to {delivered} chat(s)")
 
 
 async def _settings_for(user: User, db: AsyncSession) -> UserSettings:

@@ -110,6 +110,8 @@ Supported commands:
 - Produces BUY, SELL, or WAIT signals based on EMA/RSI/price/volume/rating rules.
 - Applies risk checks before opening paper positions.
 - Sends Telegram notifications when a paper position is opened.
+- Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
+- Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.
 
