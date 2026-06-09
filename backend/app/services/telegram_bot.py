@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.models.entities import Position, Trade
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
+from app.services.reconciliation import OrderReconciliationService
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class TelegramCommandService:
                 "/balance - paper/live balance\n"
                 "/stats - trading statistics\n"
                 "/positions - active positions\n"
+                "/reconcile - reconcile local orders\n"
                 "/chatid - show this Telegram chat id\n"
                 "/stop - deployment hint"
             )
@@ -96,6 +98,9 @@ class TelegramCommandService:
                 f"#{item.id} {item.symbol} {item.side} entry={item.entry_price:.4f} stop={item.stop:.4f} take={item.take:.4f} pnl={item.pnl:.2f}"
                 for item in positions
             )
+        if command == "/reconcile":
+            result = await OrderReconciliationService().reconcile(db)
+            return f"Reconciliation:\nChecked: {result['checked']}\nUpdated: {result['updated']}\nFailed: {result['failed']}"
         return "Unknown command. Use /help."
 
 

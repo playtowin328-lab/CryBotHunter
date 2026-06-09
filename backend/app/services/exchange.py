@@ -35,6 +35,14 @@ class ExchangeClient:
         client = self._client(authenticated=True)
         return await asyncio.to_thread(client.create_order, symbol, order_type, side, amount)
 
+    async def fetch_order(self, order_id: str, symbol: str) -> dict[str, Any]:
+        if self.settings.paper_trading:
+            return {"id": order_id, "symbol": symbol, "status": "closed"}
+        if not self.settings.live_trading_enabled:
+            raise RuntimeError("Live trading is disabled.")
+        client = self._client(authenticated=True)
+        return await asyncio.to_thread(client.fetch_order, order_id, symbol)
+
     def _client(self, authenticated: bool) -> ccxt.Exchange:
         exchange_class = getattr(ccxt, self.exchange)
         params: dict[str, Any] = {"enableRateLimit": True, "options": {"defaultType": "swap"}}

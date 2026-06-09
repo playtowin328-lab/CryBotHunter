@@ -8,6 +8,7 @@ from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry, UserSettings
 from app.services.control import TradingControlService
 from app.services.locks import RedisLockManager
+from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
@@ -20,6 +21,7 @@ async def main() -> None:
     engine = TradingEngine()
     locks = RedisLockManager()
     control = TradingControlService()
+    reconciliation = OrderReconciliationService()
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
     while True:
         try:
@@ -27,6 +29,7 @@ async def main() -> None:
                 async with locks.lock("trader-worker-loop", ttl_seconds=max(settings.trader_loop_seconds - 5, 10)) as acquired:
                     if acquired:
                         await engine.manage_open_positions(db)
+                        await reconciliation.reconcile(db)
                         paused, reason = await control.is_paused()
                         if paused:
                             logger.warning("Trader worker entry scan paused: %s", reason)

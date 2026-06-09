@@ -157,6 +157,10 @@ button, input, select {
   @apply border-b border-line px-4 py-3 text-sm font-semibold;
 }
 
+.table-title-row {
+  @apply flex items-center justify-between gap-3;
+}
+
 table {
   @apply w-full border-collapse text-sm;
 }

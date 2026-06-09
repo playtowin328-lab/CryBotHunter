@@ -317,15 +317,22 @@ function DashboardView() {
           </div>
         </div>
       </div>
-      <OrdersTable orders={orders} />
+      <OrdersTable orders={orders} onChanged={load} />
     </section>
   );
 }
 
-function OrdersTable({ orders }: { orders: Order[] }) {
+function OrdersTable({ orders, onChanged }: { orders: Order[]; onChanged: () => Promise<void> }) {
+  async function reconcile() {
+    await api.post("/orders/reconcile");
+    await onChanged();
+  }
   return (
     <div className="table-wrap">
-      <div className="table-title">Execution Audit Trail</div>
+      <div className="table-title table-title-row">
+        <span>Execution Audit Trail</span>
+        <button className="btn compact" onClick={reconcile}>Reconcile</button>
+      </div>
       <table>
         <thead>
           <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Status</th><th>Filled</th><th>Avg Price</th><th>Fee</th><th>Slippage</th></tr>
