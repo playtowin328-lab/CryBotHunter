@@ -24,12 +24,23 @@ class Settings(BaseSettings):
     default_exchange: str = "binance"
     paper_trading: bool = True
     log_retention_days: int = 90
+    telegram_bot_token: str | None = None
+    telegram_allowed_chat_ids: list[int] = []
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value: Any) -> list[str]:
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("telegram_allowed_chat_ids", mode="before")
+    @classmethod
+    def parse_telegram_chat_ids(cls, value: Any) -> list[int]:
+        if value in (None, ""):
+            return []
+        if isinstance(value, str):
+            return [int(item.strip()) for item in value.split(",") if item.strip()]
         return value
 
 

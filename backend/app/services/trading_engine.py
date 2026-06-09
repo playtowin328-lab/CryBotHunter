@@ -7,6 +7,7 @@ from app.services.exchange import ExchangeClient
 from app.services.market_scanner import MarketScanner
 from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.strategy import StrategyCore
+from app.services.telegram_bot import TelegramNotifier
 
 
 class TradingEngine:
@@ -15,6 +16,7 @@ class TradingEngine:
         self.strategy = StrategyCore()
         self.risk = RiskManager()
         self.exchange = ExchangeClient()
+        self.telegram = TelegramNotifier()
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings) -> list[Signal]:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
@@ -34,6 +36,7 @@ class TradingEngine:
                 await self._open_position(db, coin, signal.signal, balance, settings)
                 open_count += 1
                 db.add(LogEntry(level="INFO", message=f"Opened {signal.signal} paper position for {coin.symbol}"))
+                await self.telegram.broadcast(f"Position opened: {signal.signal} {coin.symbol} score={signal.score}")
             else:
                 db.add(LogEntry(level="INFO", message=f"Skipped {coin.symbol}: {reason}"))
 

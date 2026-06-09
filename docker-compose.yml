@@ -23,12 +23,15 @@ services:
   backend:
     build: ./backend
     environment:
+      APP_PROCESS: web
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
       PAPER_TRADING: ${PAPER_TRADING:-true}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,6 +39,25 @@ services:
         condition: service_started
     ports:
       - "8000:8000"
+
+  telegram:
+    build: ./backend
+    profiles: ["telegram"]
+    environment:
+      APP_PROCESS: telegram
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
+      PAPER_TRADING: ${PAPER_TRADING:-true}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
     build: ./frontend
