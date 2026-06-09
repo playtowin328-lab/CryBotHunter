@@ -25,6 +25,43 @@ Open:
 - Nginx gateway: http://localhost:8080
 - API docs: http://localhost:8000/docs
 
+## Deploy to Railway
+
+Create one Railway project with four services:
+
+- PostgreSQL database
+- Redis database
+- `backend` service from this GitHub repository with root directory `backend`
+- `frontend` service from this GitHub repository with root directory `frontend`
+
+Backend variables:
+
+```env
+ENVIRONMENT=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=replace-with-long-random-secret
+ENCRYPTION_KEY=fernet-key-generated-for-production
+PAPER_TRADING=true
+CORS_ORIGINS=https://your-frontend-domain.up.railway.app
+```
+
+Frontend variables:
+
+```env
+VITE_API_BASE_URL=https://your-backend-domain.up.railway.app/api/v1
+```
+
+Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
+
+Generate `ENCRYPTION_KEY` with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+The backend Dockerfile runs migrations on startup and listens on Railway's `$PORT`. The frontend Dockerfile builds static assets and serves them through Nginx on Railway's `$PORT`.
+
 ## Current MVP Behavior
 
 - Uses paper trading by default through `PAPER_TRADING=true`.

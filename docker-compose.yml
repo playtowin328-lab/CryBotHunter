@@ -39,6 +39,8 @@ services:
 
   frontend:
     build: ./frontend
+    environment:
+      PORT: 80
     depends_on:
       - backend
     ports:
