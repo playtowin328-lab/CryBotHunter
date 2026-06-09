@@ -149,6 +149,10 @@ button, input, select {
   @apply mx-4 mb-4;
 }
 
+.agent-card-body {
+  @apply space-y-4 p-4;
+}
+
 .table-title {
   @apply border-b border-line px-4 py-3 text-sm font-semibold;
 }

@@ -139,6 +139,24 @@ class ActionMessage(BaseModel):
     message: str
 
 
+class AgentDecisionOut(BaseModel):
+    agent_name: str
+    symbol: str
+    action: Literal["BUY", "SELL", "WAIT", "ALLOW", "REDUCE_SIZE", "BLOCK"]
+    confidence: float
+    rationale: str
+    context: dict = {}
+
+
+class AgentAnalysisOut(BaseModel):
+    symbol: str
+    market: AgentDecisionOut
+    risk: AgentDecisionOut
+    final_action: Literal["BUY", "SELL", "WAIT", "BLOCK"]
+    final_confidence: float
+    approved: bool
+
+
 class MlPrediction(BaseModel):
     symbol: str
     long_probability: int

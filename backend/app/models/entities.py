@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -106,6 +106,19 @@ class Signal(Base):
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     signal: Mapped[str] = mapped_column(String(8))
     score: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentDecision(Base):
+    __tablename__ = "agent_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent_name: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    action: Mapped[str] = mapped_column(String(32))
+    confidence: Mapped[float] = mapped_column(Float)
+    rationale: Mapped[str] = mapped_column(Text)
+    context: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

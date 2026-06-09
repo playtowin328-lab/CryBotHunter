@@ -15,10 +15,10 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
-type View = "dashboard" | "market" | "logs" | "settings";
+type View = "dashboard" | "market" | "agents" | "logs" | "settings";
 
 function App() {
   const [view, setView] = React.useState<View>("dashboard");
@@ -78,6 +78,7 @@ function App() {
           <div className="nav-group">
             <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon={<Activity size={16} />} label="Dashboard" />
             <NavButton active={view === "market"} onClick={() => setView("market")} icon={<BarChart3 size={16} />} label="Market" />
+            <NavButton active={view === "agents"} onClick={() => setView("agents")} icon={<Bot size={16} />} label="Agents" />
             <NavButton active={view === "logs"} onClick={() => setView("logs")} icon={<Terminal size={16} />} label="Logs" />
             <NavButton active={view === "settings"} onClick={() => setView("settings")} icon={<Settings size={16} />} label="Settings" />
             <button className="icon-btn" onClick={logout} title="Logout"><LogOut size={16} /></button>
@@ -87,10 +88,98 @@ function App() {
       <div className="page">
         {view === "dashboard" && <DashboardView />}
         {view === "market" && <MarketView />}
+        {view === "agents" && <AgentsView />}
         {view === "logs" && <LogsView />}
         {view === "settings" && <SettingsView />}
       </div>
     </main>
+  );
+}
+
+function AgentsView() {
+  const [analysis, setAnalysis] = React.useState<AgentAnalysis | null>(null);
+  const [decisions, setDecisions] = React.useState<AgentDecision[]>([]);
+  const [error, setError] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      setError("");
+      setDecisions((await api.get("/agents/decisions")).data);
+    } catch (err) {
+      setError(readError(err));
+    }
+  }, []);
+
+  React.useEffect(() => void load(), [load]);
+
+  async function analyze() {
+    try {
+      setLoading(true);
+      setError("");
+      const symbol = encodeURIComponent("BTC/USDT");
+      const { data } = await api.post<AgentAnalysis>(`/agents/analyze?symbol=${symbol}`);
+      setAnalysis(data);
+      await load();
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="space-y-5">
+      <Header title="AI Agents" subtitle="Structured market and risk decisions with full audit trail">
+        <button className="btn primary" onClick={analyze} disabled={loading}><Bot size={16} /> {loading ? "Analyzing" : "Analyze BTC"}</button>
+      </Header>
+      {error && <Alert tone="danger" text={error} />}
+      {analysis && (
+        <div className="status-strip">
+          <StatusItem label="Final Action" value={analysis.final_action} good={analysis.approved} />
+          <StatusItem label="Confidence" value={`${fmt(analysis.final_confidence * 100)}%`} />
+          <StatusItem label="Market Agent" value={analysis.market.action} good={analysis.market.action !== "WAIT"} />
+          <StatusItem label="Risk Agent" value={analysis.risk.action} good={analysis.risk.action !== "BLOCK"} />
+        </div>
+      )}
+      {analysis && (
+        <div className="two-col">
+          <AgentCard decision={analysis.market} />
+          <AgentCard decision={analysis.risk} />
+        </div>
+      )}
+      <div className="table-wrap">
+        <div className="table-title">Recent Agent Decisions</div>
+        <table>
+          <thead><tr><th>Agent</th><th>Symbol</th><th>Action</th><th>Confidence</th><th>Rationale</th></tr></thead>
+          <tbody>
+            {decisions.map((item, index) => (
+              <tr key={`${item.agent_name}-${item.symbol}-${index}`}>
+                <td>{item.agent_name}</td>
+                <td>{item.symbol}</td>
+                <td><span className={`pill ${item.action === "BUY" || item.action === "ALLOW" ? "buy" : item.action === "SELL" || item.action === "BLOCK" ? "sell" : ""}`}>{item.action}</span></td>
+                <td>{fmt(item.confidence * 100)}%</td>
+                <td>{item.rationale}</td>
+              </tr>
+            ))}
+            {!decisions.length && <EmptyRow cols={5} text="No agent decisions yet" />}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AgentCard({ decision }: { decision: AgentDecision }) {
+  return (
+    <div className="panel-block">
+      <div className="table-title">{decision.agent_name}</div>
+      <div className="agent-card-body">
+        <span className={`pill ${decision.action === "BUY" || decision.action === "ALLOW" ? "buy" : decision.action === "SELL" || decision.action === "BLOCK" ? "sell" : ""}`}>{decision.action}</span>
+        <Metric label="Confidence" value={`${fmt(decision.confidence * 100)}%`} />
+        <p className="muted">{decision.rationale}</p>
+      </div>
+    </div>
   );
 }
 

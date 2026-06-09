@@ -103,6 +103,24 @@ export type ActionMessage = {
   message: string;
 };
 
+export type AgentDecision = {
+  agent_name: string;
+  symbol: string;
+  action: "BUY" | "SELL" | "WAIT" | "ALLOW" | "REDUCE_SIZE" | "BLOCK";
+  confidence: number;
+  rationale: string;
+  context: Record<string, unknown>;
+};
+
+export type AgentAnalysis = {
+  symbol: string;
+  market: AgentDecision;
+  risk: AgentDecision;
+  final_action: "BUY" | "SELL" | "WAIT" | "BLOCK";
+  final_confidence: number;
+  approved: boolean;
+};
+
 export type MarketCoin = {
   symbol: string;
   price: number;

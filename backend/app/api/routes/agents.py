@@ -1,0 +1,42 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import current_user
+from app.db.session import get_db
+from app.models.entities import AgentDecision, User
+from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut
+from app.services.agents import AgentOrchestrator
+
+router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+@router.post("/analyze", response_model=AgentAnalysisOut)
+async def analyze_symbol(
+    symbol: str = "BTC/USDT",
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AgentAnalysisOut:
+    return await AgentOrchestrator().analyze(db, symbol)
+
+
+@router.get("/decisions", response_model=list[AgentDecisionOut])
+async def recent_decisions(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20,
+) -> list[AgentDecisionOut]:
+    rows = (
+        await db.execute(select(AgentDecision).order_by(AgentDecision.created_at.desc()).limit(min(limit, 100)))
+    ).scalars().all()
+    return [
+        AgentDecisionOut(
+            agent_name=row.agent_name,
+            symbol=row.symbol,
+            action=row.action,
+            confidence=row.confidence,
+            rationale=row.rationale,
+            context=row.context or {},
+        )
+        for row in rows
+    ]
