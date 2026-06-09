@@ -46,6 +46,8 @@ REDIS_URL=${{Redis.REDIS_URL}}
 JWT_SECRET=replace-with-long-random-secret
 ENCRYPTION_KEY=fernet-key-generated-for-production
 PAPER_TRADING=true
+LIVE_TRADING_ENABLED=false
+MARKET_DATA_MODE=paper
 CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
@@ -82,10 +84,14 @@ REDIS_URL=${{Redis.REDIS_URL}}
 JWT_SECRET=the-same-secret-as-backend
 ENCRYPTION_KEY=the-same-fernet-key-as-backend
 PAPER_TRADING=true
+LIVE_TRADING_ENABLED=false
+MARKET_DATA_MODE=paper
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
 ```
+
+Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. Keep `LIVE_TRADING_ENABLED=false` until order execution is reviewed, tested, and deliberately enabled.
 
 Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
 

@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
 from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
 from app.services.backtesting import BacktestingService
+from app.services.locks import RedisLockManager
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
@@ -27,12 +28,18 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         take_profit_percent=user_settings.take_profit_percent,
         trailing_stop_percent=user_settings.trailing_stop_percent,
     )
-    return await TradingEngine().run_once(db, risk_settings)
+    async with RedisLockManager().lock("trading-run", ttl_seconds=55) as acquired:
+        if not acquired:
+            return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
+        return await TradingEngine().run_once(db, risk_settings)
 
 
 @router.post("/tick", response_model=TradingTickOut)
 async def tick(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingTickOut:
-    return await TradingEngine().manage_open_positions(db)
+    async with RedisLockManager().lock("trading-tick", ttl_seconds=55) as acquired:
+        if not acquired:
+            return TradingTickOut(checked=0, closed=0, updated=[])
+        return await TradingEngine().manage_open_positions(db)
 
 
 @router.get("/status", response_model=SystemStatusOut)

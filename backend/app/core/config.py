@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:8080"]
     default_exchange: str = "binance"
     paper_trading: bool = True
+    live_trading_enabled: bool = False
+    market_data_mode: str = "paper"
+    exchange_api_key: str | None = None
+    exchange_secret_key: str | None = None
+    exchange_passphrase: str | None = None
     log_retention_days: int = 90
     telegram_bot_token: str | None = None
     telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
