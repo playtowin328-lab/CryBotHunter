@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
 from app.schemas.dto import BacktestOut, SystemStatusOut, TradingRunOut, TradingTickOut
 from app.services.backtesting import BacktestingService
+from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
@@ -63,4 +64,21 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
 @router.get("/backtest/sample", response_model=BacktestOut)
 async def sample_backtest(_: User = Depends(current_user)) -> BacktestOut:
     report = BacktestingService().summarize([12, -5, 18, 7, -9, 15, -4, 11, 3, -6])
+    return BacktestOut(**report.__dict__)
+
+
+@router.post("/backtest", response_model=BacktestOut)
+async def run_backtest(
+    symbol: str = "BTC/USDT",
+    timeframe: str = "1h",
+    limit: int = 500,
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BacktestOut:
+    history = HistoricalDataService()
+    candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
+    if len(candles) < 220:
+        await history.ingest(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
+        candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
+    report = BacktestingService().run(candles)
     return BacktestOut(**report.__dict__)

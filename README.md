@@ -93,6 +93,8 @@ TRADER_LOOP_SECONDS=60
 
 Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. Keep `LIVE_TRADING_ENABLED=false` until order execution is reviewed, tested, and deliberately enabled.
 
+Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtesting and future ML datasets.
+
 Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
 
 Generate `ENCRYPTION_KEY` with:
@@ -136,6 +138,7 @@ Supported commands:
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
+- Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.

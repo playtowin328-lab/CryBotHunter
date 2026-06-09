@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, api, BacktestReport, Dashboard, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "logs" | "settings";
@@ -107,6 +107,7 @@ function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
+  const [historyResult, setHistoryResult] = React.useState<HistoryIngest | null>(null);
   const [run, setRun] = React.useState<TradingRun | null>(null);
   const [tick, setTick] = React.useState<TradingTick | null>(null);
   const [error, setError] = React.useState("");
@@ -158,10 +159,27 @@ function DashboardView() {
     }
   }
 
+  async function loadHistoryAndBacktest() {
+    try {
+      setLoading(true);
+      setError("");
+      const symbol = encodeURIComponent("BTC/USDT");
+      const { data: history } = await api.post<HistoryIngest>(`/market/history/ingest?symbol=${symbol}&timeframe=1h&limit=500`);
+      setHistoryResult(history);
+      const { data: report } = await api.post<BacktestReport>(`/trading/backtest?symbol=${symbol}&timeframe=1h&limit=500`);
+      setBacktest(report);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+        <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Backtest BTC</button>
         <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
       </Header>
@@ -194,10 +212,13 @@ function DashboardView() {
       <div className="two-col">
         <PositionsTable data={data} onChanged={load} />
         <div className="panel-block">
-          <div className="table-title">Sample Backtest</div>
+          <div className="table-title">Backtest</div>
+          {historyResult && <p className="muted">Loaded {historyResult.inserted} new {historyResult.timeframe} candles for {historyResult.symbol}.</p>}
           <div className="mini-grid">
             <Metric label="Win Rate" value={`${fmt(backtest?.win_rate)}%`} />
             <Metric label="Profit Factor" value={fmt(backtest?.profit_factor)} />
+            <Metric label="Trades" value={String(backtest?.trades_count ?? 0)} />
+            <Metric label="Total Profit" value={`$${fmt(backtest?.total_profit)}`} tone={(backtest?.total_profit ?? 0) >= 0 ? "good" : "bad"} />
             <Metric label="Max Drawdown" value={`$${fmt(backtest?.max_drawdown)}`} tone="bad" />
             <Metric label="Avg Profit" value={`$${fmt(backtest?.average_profit)}`} tone="good" />
           </div>

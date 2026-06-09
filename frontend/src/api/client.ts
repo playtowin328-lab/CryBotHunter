@@ -88,6 +88,14 @@ export type BacktestReport = {
   max_drawdown: number;
   average_profit: number;
   average_loss: number;
+  trades_count: number;
+  total_profit: number;
+};
+
+export type HistoryIngest = {
+  symbol: string;
+  timeframe: string;
+  inserted: number;
 };
 
 export type ActionMessage = {

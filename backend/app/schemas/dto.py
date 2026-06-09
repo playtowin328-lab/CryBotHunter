@@ -124,6 +124,14 @@ class BacktestOut(BaseModel):
     max_drawdown: float
     average_profit: float
     average_loss: float
+    trades_count: int = 0
+    total_profit: float = 0
+
+
+class HistoryIngestOut(BaseModel):
+    symbol: str
+    timeframe: str
+    inserted: int
 
 
 class ActionMessage(BaseModel):
