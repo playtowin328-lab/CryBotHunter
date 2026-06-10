@@ -138,16 +138,36 @@ function AgentsView() {
         <div className="status-strip">
           <StatusItem label="Final Action" value={analysis.final_action} good={analysis.approved} />
           <StatusItem label="Confidence" value={`${fmt(analysis.final_confidence * 100)}%`} />
+          <StatusItem label="Consensus" value={`${fmt(analysis.consensus_score * 100)}%`} good={analysis.consensus_score >= 0.66} />
           <StatusItem label="Market Agent" value={analysis.market.action} good={analysis.market.action !== "WAIT"} />
           <StatusItem label="AI Advisor" value={analysis.llm?.action ?? "Off"} good={!analysis.llm || analysis.llm.action !== "WAIT"} />
         </div>
       )}
       {analysis && (
-        <div className="two-col">
-          <AgentCard decision={analysis.market} />
-          {analysis.llm && <AgentCard decision={analysis.llm} />}
-          <AgentCard decision={analysis.risk} />
-        </div>
+        <>
+          <div className="two-col">
+            <AgentCard decision={analysis.market} />
+            {analysis.llm && <AgentCard decision={analysis.llm} />}
+            <AgentCard decision={analysis.risk} />
+          </div>
+          <div className="table-wrap">
+            <div className="table-title">Trade Committee</div>
+            <table>
+              <thead><tr><th>Agent</th><th>Vote</th><th>Confidence</th><th>Reason</th></tr></thead>
+              <tbody>
+                {analysis.committee.map((item) => (
+                  <tr key={item.agent_name}>
+                    <td>{item.agent_name}</td>
+                    <td><ActionPill action={item.action} /></td>
+                    <td>{fmt(item.confidence * 100)}%</td>
+                    <td>{item.rationale}</td>
+                  </tr>
+                ))}
+                {!analysis.committee.length && <EmptyRow cols={4} text="No committee votes yet" />}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       <div className="table-wrap">
         <div className="table-title">Recent Agent Decisions</div>
@@ -158,7 +178,7 @@ function AgentsView() {
               <tr key={`${item.agent_name}-${item.symbol}-${index}`}>
                 <td>{item.agent_name}</td>
                 <td>{item.symbol}</td>
-                <td><span className={`pill ${item.action === "BUY" || item.action === "ALLOW" ? "buy" : item.action === "SELL" || item.action === "BLOCK" ? "sell" : ""}`}>{item.action}</span></td>
+                <td><ActionPill action={item.action} /></td>
                 <td>{fmt(item.confidence * 100)}%</td>
                 <td>{item.rationale}</td>
               </tr>
@@ -176,12 +196,17 @@ function AgentCard({ decision }: { decision: AgentDecision }) {
     <div className="panel-block">
       <div className="table-title">{decision.agent_name}</div>
       <div className="agent-card-body">
-        <span className={`pill ${decision.action === "BUY" || decision.action === "ALLOW" ? "buy" : decision.action === "SELL" || decision.action === "BLOCK" ? "sell" : ""}`}>{decision.action}</span>
+        <ActionPill action={decision.action} />
         <Metric label="Confidence" value={`${fmt(decision.confidence * 100)}%`} />
         <p className="muted">{decision.rationale}</p>
       </div>
     </div>
   );
+}
+
+function ActionPill({ action }: { action: AgentDecision["action"] }) {
+  const tone = action === "BUY" || action === "ALLOW" ? "buy" : action === "SELL" || action === "BLOCK" ? "sell" : "";
+  return <span className={`pill ${tone}`}>{action}</span>;
 }
 
 function NavButton(props: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {

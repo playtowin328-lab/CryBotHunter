@@ -1,7 +1,7 @@
 import pytest
 
 from app.schemas.dto import AgentDecisionOut, MarketCoin
-from app.services.agents import AgentOrchestrator, MarketAnalystAgent, RiskSupervisorAgent
+from app.services.agents import AgentOrchestrator, LiquidityAgent, MarketAnalystAgent, RiskSupervisorAgent, TrendAgent, VolatilityAgent
 
 
 def coin(**overrides):
@@ -71,3 +71,44 @@ def test_orchestrator_forces_wait_on_agent_disagreement():
     combined = AgentOrchestrator()._combine(market, llm)
     assert combined.action == "WAIT"
     assert combined.confidence <= 0.55
+
+
+def test_trade_committee_approves_strong_consensus():
+    market = AgentDecisionOut(
+        agent_name="MarketAnalystAgent",
+        symbol="BTC/USDT",
+        action="BUY",
+        confidence=0.88,
+        rationale="local buy",
+    )
+    committee = [
+        TrendAgent().decide(coin()),
+        AgentDecisionOut(agent_name="MomentumAgent", symbol="BTC/USDT", action="BUY", confidence=0.8, rationale="momentum buy"),
+        LiquidityAgent().decide(coin()),
+        VolatilityAgent().decide(coin()),
+    ]
+
+    decision, consensus = AgentOrchestrator()._committee_consensus(market, None, committee)
+
+    assert decision.action == "BUY"
+    assert consensus >= 0.66
+
+
+def test_trade_committee_veto_blocks_thin_liquidity():
+    market = AgentDecisionOut(
+        agent_name="MarketAnalystAgent",
+        symbol="BTC/USDT",
+        action="BUY",
+        confidence=0.88,
+        rationale="local buy",
+    )
+    committee = [
+        TrendAgent().decide(coin()),
+        LiquidityAgent().decide(coin(volume_24h=10_000, open_interest=10_000)),
+        VolatilityAgent().decide(coin()),
+    ]
+
+    decision, consensus = AgentOrchestrator()._committee_consensus(market, None, committee)
+
+    assert decision.action == "WAIT"
+    assert consensus == 0

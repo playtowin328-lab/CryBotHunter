@@ -172,7 +172,7 @@ class AgentDecisionOut(BaseModel):
     action: Literal["BUY", "SELL", "WAIT", "ALLOW", "REDUCE_SIZE", "BLOCK"]
     confidence: float
     rationale: str
-    context: dict = {}
+    context: dict = Field(default_factory=dict)
 
 
 class LlmAdvice(BaseModel):
@@ -187,6 +187,8 @@ class AgentAnalysisOut(BaseModel):
     market: AgentDecisionOut
     llm: AgentDecisionOut | None = None
     risk: AgentDecisionOut
+    committee: list[AgentDecisionOut] = Field(default_factory=list)
+    consensus_score: float = 0
     final_action: Literal["BUY", "SELL", "WAIT", "BLOCK"]
     final_confidence: float
     approved: bool

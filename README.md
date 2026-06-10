@@ -100,7 +100,7 @@ Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtestin
 
 Use `POST /api/v1/strategy-lab/optimize` to run a parameter grid search against stored candles and save the strongest strategy configurations. Use `GET /api/v1/strategy-lab/results` to show the latest optimizer results in the dashboard.
 
-Use `POST /api/v1/agents/analyze` to run structured market and risk agents. Every agent decision is stored in `agent_decisions` for auditability.
+Use `POST /api/v1/agents/analyze` to run the AI Trade Committee: market, trend, momentum, liquidity, volatility, optional LLM, and risk agents. Every agent decision is stored in `agent_decisions` for auditability.
 
 Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` to enable the optional LLM advisor. It can only advise through structured JSON; it cannot open trades directly.
 
@@ -157,7 +157,7 @@ Supported commands:
 - Reconciles local order state through `POST /api/v1/orders/reconcile` and Telegram `/reconcile`.
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Runs Strategy Lab optimization through `/api/v1/strategy-lab/optimize` and stores top strategy configurations.
-- Provides safe AI-agent style decisions through `/api/v1/agents/analyze`; agents advise and audit, while deterministic risk checks remain the gate.
+- Provides safe AI Trade Committee decisions through `/api/v1/agents/analyze`; agents vote, veto weak setups, and audit every decision while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
 - Provides panic/resume controls through API and Telegram.
 - Provides deep health checks through `/health/deep`.

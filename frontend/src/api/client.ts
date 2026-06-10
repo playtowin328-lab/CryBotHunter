@@ -156,6 +156,8 @@ export type AgentAnalysis = {
   market: AgentDecision;
   llm?: AgentDecision | null;
   risk: AgentDecision;
+  committee: AgentDecision[];
+  consensus_score: number;
   final_action: "BUY" | "SELL" | "WAIT" | "BLOCK";
   final_confidence: number;
   approved: boolean;
