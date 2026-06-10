@@ -157,6 +157,7 @@ Supported commands:
 - Stores exchange API keys encrypted and returns only masked values.
 - Scans synthetic market data and calculates ratings from volume, trend, volatility, volume growth, and liquidity.
 - Produces BUY, SELL, or WAIT signals based on EMA/RSI/price/volume/rating rules.
+- Detects market regimes such as trending, ranging, high volatility, and low liquidity before accepting entries.
 - Applies risk checks before opening paper positions.
 - Blocks entries when portfolio or single-symbol exposure exceeds configured limits.
 - Uses the AI Trade Committee as an optional final entry gate before opening positions.

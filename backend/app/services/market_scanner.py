@@ -7,9 +7,13 @@ import pandas as pd
 from app.core.config import get_settings
 from app.schemas.dto import MarketCoin
 from app.services.exchange import ExchangeClient
+from app.services.market_regime import MarketRegimeDetector
 
 
 class MarketScanner:
+    def __init__(self) -> None:
+        self.regime_detector = MarketRegimeDetector()
+
     async def scan(self, symbols: list[str] | None = None) -> list[MarketCoin]:
         symbols = symbols or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
         if get_settings().market_data_mode.lower() == "ccxt":
@@ -18,7 +22,7 @@ class MarketScanner:
             except Exception:
                 pass
         rows = [self._synthetic_row(symbol) for symbol in symbols]
-        return [MarketCoin(**row, rating=self.rate_coin(row)) for row in rows]
+        return [self._coin_from_row(row) for row in rows]
 
     async def _scan_ccxt(self, symbols: list[str]) -> list[MarketCoin]:
         exchange = ExchangeClient()
@@ -45,8 +49,18 @@ class MarketScanner:
                 "funding_rate": 0.0,
                 "open_interest": 0.0,
             }
-            coins.append(MarketCoin(**row, rating=self.rate_coin(row)))
+            coins.append(self._coin_from_row(row))
         return coins
+
+    def _coin_from_row(self, row: dict[str, float | str]) -> MarketCoin:
+        regime = self.regime_detector.detect(row)
+        return MarketCoin(
+            **row,
+            rating=self.rate_coin(row),
+            regime=regime.name,
+            regime_score=regime.score,
+            regime_reason=regime.reason,
+        )
 
     def rate_coin(self, row: dict[str, float | str]) -> int:
         volume_score = min(float(row["volume_24h"]) / 2_000_000_000 * 20, 20)

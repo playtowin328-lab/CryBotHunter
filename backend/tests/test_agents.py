@@ -1,7 +1,7 @@
 import pytest
 
 from app.schemas.dto import AgentDecisionOut, MarketCoin
-from app.services.agents import AgentOrchestrator, LiquidityAgent, MarketAnalystAgent, RiskSupervisorAgent, TrendAgent, VolatilityAgent
+from app.services.agents import AgentOrchestrator, LiquidityAgent, MarketAnalystAgent, RegimeAgent, RiskSupervisorAgent, TrendAgent, VolatilityAgent
 
 
 def coin(**overrides):
@@ -19,6 +19,9 @@ def coin(**overrides):
         "funding_rate": 0.01,
         "open_interest": 1_500_000_000,
         "rating": 88,
+        "regime": "TRENDING_UP",
+        "regime_score": 82,
+        "regime_reason": "test trend",
     }
     data.update(overrides)
     return MarketCoin(**data)
@@ -82,6 +85,7 @@ def test_trade_committee_approves_strong_consensus():
         rationale="local buy",
     )
     committee = [
+        RegimeAgent().decide(coin()),
         TrendAgent().decide(coin()),
         AgentDecisionOut(agent_name="MomentumAgent", symbol="BTC/USDT", action="BUY", confidence=0.8, rationale="momentum buy"),
         LiquidityAgent().decide(coin()),
@@ -92,6 +96,12 @@ def test_trade_committee_approves_strong_consensus():
 
     assert decision.action == "BUY"
     assert consensus >= 0.66
+
+
+def test_regime_agent_blocks_bad_regime():
+    decision = RegimeAgent().decide(coin(regime="HIGH_VOLATILITY", regime_score=25, regime_reason="too hot"))
+    assert decision.action == "BLOCK"
+    assert decision.confidence >= 0.9
 
 
 def test_trade_committee_veto_blocks_thin_liquidity():

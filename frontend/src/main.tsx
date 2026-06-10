@@ -504,7 +504,7 @@ function MarketView() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Coin</th><th>Price</th><th>24h Volume</th><th>Change</th><th>RSI</th><th>Trend</th><th>Rating</th></tr>
+            <tr><th>Coin</th><th>Price</th><th>24h Volume</th><th>Change</th><th>RSI</th><th>Trend</th><th>Regime</th><th>Rating</th></tr>
           </thead>
           <tbody>
             {coins.map((coin) => (
@@ -515,10 +515,11 @@ function MarketView() {
                 <td className={coin.price_change_percent >= 0 ? "text-accent" : "text-danger"}>{fmt(coin.price_change_percent)}%</td>
                 <td>{fmt(coin.rsi)}</td>
                 <td><span className={`pill ${coin.ema50 > coin.ema200 ? "buy" : "sell"}`}>{coin.ema50 > coin.ema200 ? "Bull" : "Bear"}</span></td>
+                <td><span className={`pill ${coin.regime === "TRENDING_UP" ? "buy" : coin.regime === "TRENDING_DOWN" || coin.regime === "HIGH_VOLATILITY" || coin.regime === "LOW_LIQUIDITY" ? "sell" : ""}`} title={coin.regime_reason}>{coin.regime}</span></td>
                 <td><span className="score">{coin.rating}</span></td>
               </tr>
             ))}
-            {!coins.length && <EmptyRow cols={7} text="No market data loaded" />}
+            {!coins.length && <EmptyRow cols={8} text="No market data loaded" />}
           </tbody>
         </table>
       </div>

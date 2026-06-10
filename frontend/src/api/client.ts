@@ -185,6 +185,9 @@ export type MarketCoin = {
   ema50: number;
   ema200: number;
   rating: number;
+  regime: string;
+  regime_score: number;
+  regime_reason: string;
 };
 
 export type LogEntry = {

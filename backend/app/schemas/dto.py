@@ -77,6 +77,9 @@ class MarketCoin(BaseModel):
     funding_rate: float = 0
     open_interest: float = 0
     rating: int
+    regime: str = "UNKNOWN"
+    regime_score: int = 0
+    regime_reason: str = ""
 
 
 class StrategySignal(BaseModel):

@@ -201,13 +201,39 @@ class VolatilityAgent:
         )
 
 
+class RegimeAgent:
+    name = "RegimeAgent"
+
+    def decide(self, coin: MarketCoin) -> AgentDecisionOut:
+        if coin.regime == "TRENDING_UP":
+            action = "BUY"
+            confidence = max(0.65, coin.regime_score / 100)
+        elif coin.regime == "TRENDING_DOWN":
+            action = "SELL"
+            confidence = max(0.65, coin.regime_score / 100)
+        elif coin.regime in {"LOW_LIQUIDITY", "HIGH_VOLATILITY"}:
+            action = "BLOCK"
+            confidence = 0.9
+        else:
+            action = "WAIT"
+            confidence = max(0.45, coin.regime_score / 100)
+        return AgentDecisionOut(
+            agent_name=self.name,
+            symbol=coin.symbol,
+            action=action,
+            confidence=round(min(confidence, 0.95), 2),
+            rationale=f"Market regime={coin.regime}; {coin.regime_reason}",
+            context={"regime": coin.regime, "regime_score": coin.regime_score},
+        )
+
+
 class AgentOrchestrator:
     def __init__(self) -> None:
         self.scanner = MarketScanner()
         self.market_agent = MarketAnalystAgent()
         self.llm_agent = LlmAdvisorAgent()
         self.risk_agent = RiskSupervisorAgent()
-        self.committee_agents = [TrendAgent(), MomentumAgent(), LiquidityAgent(), VolatilityAgent()]
+        self.committee_agents = [RegimeAgent(), TrendAgent(), MomentumAgent(), LiquidityAgent(), VolatilityAgent()]
 
     async def analyze(self, db: AsyncSession, symbol: str) -> AgentAnalysisOut:
         coins = await self.scanner.scan([symbol])

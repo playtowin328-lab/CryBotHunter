@@ -5,8 +5,18 @@ class StrategyCore:
     def evaluate(self, coin: MarketCoin, average_volume: float | None = None) -> StrategySignal:
         average_volume = average_volume or coin.volume_24h * 0.75
         reasons: list[str] = []
+        long_regime = coin.regime in {"TRENDING_UP", "UNKNOWN"}
+        short_regime = coin.regime in {"TRENDING_DOWN", "UNKNOWN"}
+        if coin.regime in {"LOW_LIQUIDITY", "HIGH_VOLATILITY"}:
+            return StrategySignal(
+                symbol=coin.symbol,
+                signal="WAIT",
+                score=min(coin.rating, coin.regime_score),
+                reasons=[f"blocked by market regime: {coin.regime}"],
+            )
 
         long_rules = [
+            (long_regime, "market regime supports long"),
             (coin.ema50 > coin.ema200, "EMA50 above EMA200"),
             (55 <= coin.rsi <= 75, "RSI in long range"),
             (coin.price > coin.ema50, "price above EMA50"),
@@ -14,6 +24,7 @@ class StrategyCore:
             (coin.rating > 80, "rating above 80"),
         ]
         short_rules = [
+            (short_regime, "market regime supports short"),
             (coin.ema50 < coin.ema200, "EMA50 below EMA200"),
             (25 <= coin.rsi <= 45, "RSI in short range"),
             (coin.price < coin.ema50, "price below EMA50"),
