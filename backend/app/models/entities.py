@@ -57,6 +57,8 @@ class UserSettings(Base):
     risk_reward_ratio: Mapped[float] = mapped_column(Float, default=2.0)
     breakeven_trigger_r: Mapped[float] = mapped_column(Float, default=1.0)
     breakeven_offset_percent: Mapped[float] = mapped_column(Float, default=0.05)
+    partial_take_profit_r: Mapped[float] = mapped_column(Float, default=1.0)
+    partial_close_percent: Mapped[float] = mapped_column(Float, default=50.0)
 
     user: Mapped[User] = relationship(back_populates="settings")
 
@@ -76,6 +78,9 @@ class Position(Base):
     breakeven_applied: Mapped[bool] = mapped_column(Boolean, default=False)
     breakeven_trigger_r: Mapped[float] = mapped_column(Float, default=1.0)
     breakeven_offset_percent: Mapped[float] = mapped_column(Float, default=0.05)
+    partial_take_profit_r: Mapped[float] = mapped_column(Float, default=1.0)
+    partial_close_percent: Mapped[float] = mapped_column(Float, default=50.0)
+    partial_taken: Mapped[bool] = mapped_column(Boolean, default=False)
     trailing_stop_percent: Mapped[float] = mapped_column(Float, default=0.0)
     highest_price: Mapped[float] = mapped_column(Float, default=0.0)
     lowest_price: Mapped[float] = mapped_column(Float, default=0.0)

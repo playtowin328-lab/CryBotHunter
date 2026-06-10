@@ -123,6 +123,8 @@ class TradingEngine:
             position.current_price = coin.price
             position.highest_price = max(position.highest_price or position.entry_price, coin.price)
             position.lowest_price = min(position.lowest_price or position.entry_price, coin.price)
+            if await self._apply_partial_take_profit(db, position, coin.price):
+                db.add(LogEntry(level="INFO", message=f"Partially closed {position.symbol} #{position.id}: remaining={position.volume:.6f}"))
             if self._apply_breakeven(position):
                 db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
             self._apply_trailing_stop(position)
@@ -179,6 +181,9 @@ class TradingEngine:
             breakeven_applied=False,
             breakeven_trigger_r=settings.breakeven_trigger_r,
             breakeven_offset_percent=settings.breakeven_offset_percent,
+            partial_take_profit_r=settings.partial_take_profit_r,
+            partial_close_percent=settings.partial_close_percent,
+            partial_taken=False,
             trailing_stop_percent=settings.trailing_stop_percent,
             highest_price=entry_price,
             lowest_price=entry_price,
@@ -239,6 +244,58 @@ class TradingEngine:
             and analysis.final_action == signal
             and analysis.consensus_score >= self.settings.ai_committee_min_consensus
         )
+
+    async def _apply_partial_take_profit(self, db: AsyncSession, position: Position, price: float) -> bool:
+        if position.partial_taken or not self._partial_take_profit_reached(position, price):
+            return False
+        close_volume = self._partial_close_volume(position)
+        if close_volume <= 0 or close_volume >= position.volume:
+            return False
+        exit_order = await self.execution.execute_market(
+            db,
+            position.symbol,
+            "sell" if position.side == "LONG" else "buy",
+            close_volume,
+            price,
+            "PARTIAL_TAKE_PROFIT",
+        )
+        if exit_order.status != OrderStatus.FILLED.value or not exit_order.average_price:
+            db.add(LogEntry(level="ERROR", message=f"Failed partial take profit for {position.symbol} #{position.id}"))
+            return False
+        partial_profit = self._profit_for_volume(position, exit_order.average_price, close_volume) - exit_order.fee
+        position.volume = round(position.volume - close_volume, 8)
+        position.partial_taken = True
+        position.pnl = self._pnl(position, price)
+        db.add(
+            Trade(
+                symbol=position.symbol,
+                side=position.side,
+                entry_price=position.entry_price,
+                exit_price=exit_order.average_price,
+                profit=round(partial_profit, 4),
+            )
+        )
+        await self.telegram.broadcast(
+            f"Partial take profit\n"
+            f"{position.side} {position.symbol}\n"
+            f"Closed: {close_volume:.6f}\n"
+            f"Exit: {exit_order.average_price:.4f}\n"
+            f"Profit: {partial_profit:.2f}"
+        )
+        return True
+
+    def _partial_take_profit_reached(self, position: Position, price: float) -> bool:
+        initial_risk = position.initial_risk or abs(position.entry_price - position.stop)
+        if initial_risk <= 0:
+            return False
+        trigger = initial_risk * (position.partial_take_profit_r or 1.0)
+        if position.side == "LONG":
+            return price >= position.entry_price + trigger
+        return price <= position.entry_price - trigger
+
+    def _partial_close_volume(self, position: Position) -> float:
+        close_percent = min(max(position.partial_close_percent or 0.0, 0.0), 90.0)
+        return round(position.volume * close_percent / 100, 8)
 
     async def _close_position(self, db: AsyncSession, position: Position, exit_price: float, reason: str) -> None:
         exit_order = await self.execution.execute_market(
@@ -321,6 +378,10 @@ class TradingEngine:
     def _pnl(self, position: Position, price: float) -> float:
         multiplier = 1 if position.side == "LONG" else -1
         return round((price - position.entry_price) * position.volume * multiplier, 4)
+
+    def _profit_for_volume(self, position: Position, price: float, volume: float) -> float:
+        multiplier = 1 if position.side == "LONG" else -1
+        return round((price - position.entry_price) * volume * multiplier, 4)
 
     async def _open_positions_count(self, db: AsyncSession) -> int:
         result = await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))

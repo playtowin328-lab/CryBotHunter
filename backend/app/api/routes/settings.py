@@ -34,6 +34,8 @@ async def update_user_settings(payload: SettingsIn, user: User = Depends(current
     settings.risk_reward_ratio = payload.risk_reward_ratio
     settings.breakeven_trigger_r = payload.breakeven_trigger_r
     settings.breakeven_offset_percent = payload.breakeven_offset_percent
+    settings.partial_take_profit_r = payload.partial_take_profit_r
+    settings.partial_close_percent = payload.partial_close_percent
     if payload.api_key:
         settings.api_key_encrypted = encrypt_secret(payload.api_key)
     if payload.secret_key:
@@ -87,4 +89,6 @@ def _serialize(settings: UserSettings) -> SettingsOut:
         risk_reward_ratio=settings.risk_reward_ratio,
         breakeven_trigger_r=settings.breakeven_trigger_r,
         breakeven_offset_percent=settings.breakeven_offset_percent,
+        partial_take_profit_r=settings.partial_take_profit_r,
+        partial_close_percent=settings.partial_close_percent,
     )

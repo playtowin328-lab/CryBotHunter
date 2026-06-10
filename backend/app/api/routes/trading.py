@@ -37,6 +37,8 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         risk_reward_ratio=user_settings.risk_reward_ratio,
         breakeven_trigger_r=user_settings.breakeven_trigger_r,
         breakeven_offset_percent=user_settings.breakeven_offset_percent,
+        partial_take_profit_r=user_settings.partial_take_profit_r,
+        partial_close_percent=user_settings.partial_close_percent,
     )
     async with RedisLockManager().lock("trading-run", ttl_seconds=55) as acquired:
         if not acquired:

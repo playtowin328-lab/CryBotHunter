@@ -17,6 +17,8 @@ class RiskSettings:
     risk_reward_ratio: float = 2.0
     breakeven_trigger_r: float = 1.0
     breakeven_offset_percent: float = 0.05
+    partial_take_profit_r: float = 1.0
+    partial_close_percent: float = 50.0
 
 
 class RiskManager:

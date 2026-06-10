@@ -12,6 +12,23 @@ def analysis(action: str, approved: bool = True, consensus_score: float = 0.8) -
         confidence=0.8,
         rationale="test",
     )
+    risk = AgentDecisionOut(
+        agent_name="RiskSupervisorAgent",
+        symbol="BTC/USDT",
+        action="ALLOW" if approved else "BLOCK",
+        confidence=0.8,
+        rationale="test",
+    )
+    return AgentAnalysisOut(
+        symbol="BTC/USDT",
+        market=decision,
+        risk=risk,
+        committee=[],
+        consensus_score=consensus_score,
+        final_action=action,
+        final_confidence=0.8,
+        approved=approved,
+    )
 
 
 def coin() -> MarketCoin:
@@ -46,23 +63,8 @@ def risk_settings() -> RiskSettings:
         risk_reward_ratio=2,
         breakeven_trigger_r=1,
         breakeven_offset_percent=0.05,
-    )
-    risk = AgentDecisionOut(
-        agent_name="RiskSupervisorAgent",
-        symbol="BTC/USDT",
-        action="ALLOW" if approved else "BLOCK",
-        confidence=0.8,
-        rationale="test",
-    )
-    return AgentAnalysisOut(
-        symbol="BTC/USDT",
-        market=decision,
-        risk=risk,
-        committee=[],
-        consensus_score=consensus_score,
-        final_action=action,
-        final_confidence=0.8,
-        approved=approved,
+        partial_take_profit_r=1,
+        partial_close_percent=50,
     )
 
 
@@ -169,6 +171,9 @@ def test_breakeven_moves_long_stop_after_trigger():
         breakeven_applied=False,
         breakeven_trigger_r=1,
         breakeven_offset_percent=0.05,
+        partial_take_profit_r=1,
+        partial_close_percent=50,
+        partial_taken=False,
         trailing_stop_percent=0.8,
         highest_price=105,
         lowest_price=100,
@@ -179,3 +184,27 @@ def test_breakeven_moves_long_stop_after_trigger():
     assert applied is True
     assert position.breakeven_applied is True
     assert position.stop == 100.05
+
+
+def test_partial_take_profit_reaches_trigger_and_sizes_close():
+    position = Position(
+        symbol="BTC/USDT",
+        side="LONG",
+        entry_price=100,
+        current_price=104,
+        volume=2,
+        stop=96,
+        take=110,
+        initial_risk=4,
+        partial_take_profit_r=1,
+        partial_close_percent=50,
+        partial_taken=False,
+        trailing_stop_percent=0.8,
+        highest_price=104,
+        lowest_price=100,
+    )
+    engine = TradingEngine()
+
+    assert engine._partial_take_profit_reached(position, 104)
+    assert engine._partial_close_volume(position) == 1
+    assert engine._profit_for_volume(position, 104, 1) == 4

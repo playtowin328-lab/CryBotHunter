@@ -25,6 +25,9 @@ export type Position = {
   breakeven_applied: boolean;
   breakeven_trigger_r: number;
   breakeven_offset_percent: number;
+  partial_take_profit_r: number;
+  partial_close_percent: number;
+  partial_taken: boolean;
   trailing_stop_percent: number;
   highest_price: number;
   lowest_price: number;

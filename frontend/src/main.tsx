@@ -576,7 +576,9 @@ function SettingsView() {
     atr_stop_multiplier: 1.5,
     risk_reward_ratio: 2,
     breakeven_trigger_r: 1,
-    breakeven_offset_percent: 0.05
+    breakeven_offset_percent: 0.05,
+    partial_take_profit_r: 1,
+    partial_close_percent: 50
   });
   const [message, setMessage] = React.useState<ActionMessage | null>(null);
   const [error, setError] = React.useState("");
@@ -597,7 +599,9 @@ function SettingsView() {
         atr_stop_multiplier: data.atr_stop_multiplier,
         risk_reward_ratio: data.risk_reward_ratio,
         breakeven_trigger_r: data.breakeven_trigger_r,
-        breakeven_offset_percent: data.breakeven_offset_percent
+        breakeven_offset_percent: data.breakeven_offset_percent,
+        partial_take_profit_r: data.partial_take_profit_r,
+        partial_close_percent: data.partial_close_percent
       }));
     }).catch((err) => setError(readError(err)));
   }, []);
@@ -654,6 +658,8 @@ function SettingsView() {
           <label className="field">Risk reward ratio<input type="number" value={settings.risk_reward_ratio} onChange={(event) => update("risk_reward_ratio", Number(event.target.value))} /></label>
           <label className="field">Breakeven trigger R<input type="number" value={settings.breakeven_trigger_r} onChange={(event) => update("breakeven_trigger_r", Number(event.target.value))} /></label>
           <label className="field">Breakeven offset<input type="number" value={settings.breakeven_offset_percent} onChange={(event) => update("breakeven_offset_percent", Number(event.target.value))} /></label>
+          <label className="field">Partial take profit R<input type="number" value={settings.partial_take_profit_r} onChange={(event) => update("partial_take_profit_r", Number(event.target.value))} /></label>
+          <label className="field">Partial close %<input type="number" value={settings.partial_close_percent} onChange={(event) => update("partial_close_percent", Number(event.target.value))} /></label>
           <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
         </div>
         <div className="panel-block">

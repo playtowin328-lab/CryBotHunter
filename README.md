@@ -161,6 +161,7 @@ Supported commands:
 - Blocks entries when portfolio or single-symbol exposure exceeds configured limits.
 - Uses the AI Trade Committee as an optional final entry gate before opening positions.
 - Opens positions with ATR-aware stop/take planning and moves stops to breakeven after configured R-multiple progress.
+- Takes partial profit at a configured R-multiple, reduces remaining exposure, and lets the rest run with breakeven/trailing logic.
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.

@@ -36,6 +36,8 @@ class SettingsIn(BaseModel):
     risk_reward_ratio: float = Field(default=2.0, ge=0.2, le=20)
     breakeven_trigger_r: float = Field(default=1.0, ge=0.1, le=10)
     breakeven_offset_percent: float = Field(default=0.05, ge=0, le=5)
+    partial_take_profit_r: float = Field(default=1.0, ge=0.1, le=10)
+    partial_close_percent: float = Field(default=50.0, ge=1, le=90)
 
 
 class SettingsOut(BaseModel):
@@ -57,6 +59,8 @@ class SettingsOut(BaseModel):
     risk_reward_ratio: float
     breakeven_trigger_r: float
     breakeven_offset_percent: float
+    partial_take_profit_r: float
+    partial_close_percent: float
 
 
 class MarketCoin(BaseModel):
@@ -229,6 +233,9 @@ class PositionOut(BaseModel):
     breakeven_applied: bool
     breakeven_trigger_r: float
     breakeven_offset_percent: float
+    partial_take_profit_r: float
+    partial_close_percent: float
+    partial_taken: bool
     trailing_stop_percent: float
     highest_price: float
     lowest_price: float
