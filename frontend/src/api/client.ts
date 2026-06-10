@@ -21,6 +21,10 @@ export type Position = {
   volume: number;
   stop: number;
   take: number;
+  initial_risk: number;
+  breakeven_applied: boolean;
+  breakeven_trigger_r: number;
+  breakeven_offset_percent: number;
   trailing_stop_percent: number;
   highest_price: number;
   lowest_price: number;

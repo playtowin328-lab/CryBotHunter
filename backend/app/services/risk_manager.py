@@ -13,6 +13,10 @@ class RiskSettings:
     stop_loss_percent: float
     take_profit_percent: float
     trailing_stop_percent: float
+    atr_stop_multiplier: float = 1.5
+    risk_reward_ratio: float = 2.0
+    breakeven_trigger_r: float = 1.0
+    breakeven_offset_percent: float = 0.05
 
 
 class RiskManager:

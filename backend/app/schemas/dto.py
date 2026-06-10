@@ -32,6 +32,10 @@ class SettingsIn(BaseModel):
     stop_loss_percent: float = Field(ge=0.1, le=25)
     take_profit_percent: float = Field(ge=0.1, le=100)
     trailing_stop_percent: float = Field(default=0.8, ge=0, le=20)
+    atr_stop_multiplier: float = Field(default=1.5, ge=0.1, le=10)
+    risk_reward_ratio: float = Field(default=2.0, ge=0.2, le=20)
+    breakeven_trigger_r: float = Field(default=1.0, ge=0.1, le=10)
+    breakeven_offset_percent: float = Field(default=0.05, ge=0, le=5)
 
 
 class SettingsOut(BaseModel):
@@ -49,6 +53,10 @@ class SettingsOut(BaseModel):
     stop_loss_percent: float
     take_profit_percent: float
     trailing_stop_percent: float
+    atr_stop_multiplier: float
+    risk_reward_ratio: float
+    breakeven_trigger_r: float
+    breakeven_offset_percent: float
 
 
 class MarketCoin(BaseModel):
@@ -217,6 +225,10 @@ class PositionOut(BaseModel):
     volume: float
     stop: float
     take: float
+    initial_risk: float
+    breakeven_applied: bool
+    breakeven_trigger_r: float
+    breakeven_offset_percent: float
     trailing_stop_percent: float
     highest_price: float
     lowest_price: float

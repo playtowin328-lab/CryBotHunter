@@ -572,7 +572,11 @@ function SettingsView() {
     scan_interval: "5m",
     stop_loss_percent: 1.5,
     take_profit_percent: 3,
-    trailing_stop_percent: 0.8
+    trailing_stop_percent: 0.8,
+    atr_stop_multiplier: 1.5,
+    risk_reward_ratio: 2,
+    breakeven_trigger_r: 1,
+    breakeven_offset_percent: 0.05
   });
   const [message, setMessage] = React.useState<ActionMessage | null>(null);
   const [error, setError] = React.useState("");
@@ -589,7 +593,11 @@ function SettingsView() {
         scan_interval: data.scan_interval,
         stop_loss_percent: data.stop_loss_percent,
         take_profit_percent: data.take_profit_percent,
-        trailing_stop_percent: data.trailing_stop_percent
+        trailing_stop_percent: data.trailing_stop_percent,
+        atr_stop_multiplier: data.atr_stop_multiplier,
+        risk_reward_ratio: data.risk_reward_ratio,
+        breakeven_trigger_r: data.breakeven_trigger_r,
+        breakeven_offset_percent: data.breakeven_offset_percent
       }));
     }).catch((err) => setError(readError(err)));
   }, []);
@@ -642,6 +650,10 @@ function SettingsView() {
           <label className="field">Stop loss<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
           <label className="field">Take profit<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
           <label className="field">Trailing stop<input type="number" value={settings.trailing_stop_percent} onChange={(event) => update("trailing_stop_percent", Number(event.target.value))} /></label>
+          <label className="field">ATR stop multiplier<input type="number" value={settings.atr_stop_multiplier} onChange={(event) => update("atr_stop_multiplier", Number(event.target.value))} /></label>
+          <label className="field">Risk reward ratio<input type="number" value={settings.risk_reward_ratio} onChange={(event) => update("risk_reward_ratio", Number(event.target.value))} /></label>
+          <label className="field">Breakeven trigger R<input type="number" value={settings.breakeven_trigger_r} onChange={(event) => update("breakeven_trigger_r", Number(event.target.value))} /></label>
+          <label className="field">Breakeven offset<input type="number" value={settings.breakeven_offset_percent} onChange={(event) => update("breakeven_offset_percent", Number(event.target.value))} /></label>
           <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
         </div>
         <div className="panel-block">

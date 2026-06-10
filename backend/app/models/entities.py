@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -53,6 +53,10 @@ class UserSettings(Base):
     stop_loss_percent: Mapped[float] = mapped_column(Float, default=1.5)
     take_profit_percent: Mapped[float] = mapped_column(Float, default=3.0)
     trailing_stop_percent: Mapped[float] = mapped_column(Float, default=0.8)
+    atr_stop_multiplier: Mapped[float] = mapped_column(Float, default=1.5)
+    risk_reward_ratio: Mapped[float] = mapped_column(Float, default=2.0)
+    breakeven_trigger_r: Mapped[float] = mapped_column(Float, default=1.0)
+    breakeven_offset_percent: Mapped[float] = mapped_column(Float, default=0.05)
 
     user: Mapped[User] = relationship(back_populates="settings")
 
@@ -68,6 +72,10 @@ class Position(Base):
     volume: Mapped[float] = mapped_column(Float)
     stop: Mapped[float] = mapped_column(Float)
     take: Mapped[float] = mapped_column(Float)
+    initial_risk: Mapped[float] = mapped_column(Float, default=0.0)
+    breakeven_applied: Mapped[bool] = mapped_column(Boolean, default=False)
+    breakeven_trigger_r: Mapped[float] = mapped_column(Float, default=1.0)
+    breakeven_offset_percent: Mapped[float] = mapped_column(Float, default=0.05)
     trailing_stop_percent: Mapped[float] = mapped_column(Float, default=0.0)
     highest_price: Mapped[float] = mapped_column(Float, default=0.0)
     lowest_price: Mapped[float] = mapped_column(Float, default=0.0)

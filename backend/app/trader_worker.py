@@ -46,6 +46,10 @@ async def main() -> None:
                                 stop_loss_percent=user_settings.stop_loss_percent,
                                 take_profit_percent=user_settings.take_profit_percent,
                                 trailing_stop_percent=user_settings.trailing_stop_percent,
+                                atr_stop_multiplier=user_settings.atr_stop_multiplier,
+                                risk_reward_ratio=user_settings.risk_reward_ratio,
+                                breakeven_trigger_r=user_settings.breakeven_trigger_r,
+                                breakeven_offset_percent=user_settings.breakeven_offset_percent,
                             )
                             await engine.run_once(db, risk_settings)
                         else:

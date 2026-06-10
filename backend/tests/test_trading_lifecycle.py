@@ -42,6 +42,10 @@ def risk_settings() -> RiskSettings:
         stop_loss_percent=1,
         take_profit_percent=3,
         trailing_stop_percent=0.8,
+        atr_stop_multiplier=1.5,
+        risk_reward_ratio=2,
+        breakeven_trigger_r=1,
+        breakeven_offset_percent=0.05,
     )
     risk = AgentDecisionOut(
         agent_name="RiskSupervisorAgent",
@@ -137,3 +141,41 @@ def test_exposure_gate_rejects_overloaded_portfolio():
     assert accepted is False
     assert reason == "gross exposure limit reached"
     assert candidate > 0
+
+
+def test_exit_plan_uses_atr_risk_when_larger_than_percent_stop():
+    stop, take, initial_risk = TradingEngine()._exit_plan(
+        entry_price=100,
+        atr=3,
+        side="LONG",
+        settings=risk_settings(),
+    )
+
+    assert initial_risk == 4.5
+    assert stop == 95.5
+    assert take == 109
+
+
+def test_breakeven_moves_long_stop_after_trigger():
+    position = Position(
+        symbol="BTC/USDT",
+        side="LONG",
+        entry_price=100,
+        current_price=105,
+        volume=1,
+        stop=95,
+        take=110,
+        initial_risk=4,
+        breakeven_applied=False,
+        breakeven_trigger_r=1,
+        breakeven_offset_percent=0.05,
+        trailing_stop_percent=0.8,
+        highest_price=105,
+        lowest_price=100,
+    )
+
+    applied = TradingEngine()._apply_breakeven(position)
+
+    assert applied is True
+    assert position.breakeven_applied is True
+    assert position.stop == 100.05

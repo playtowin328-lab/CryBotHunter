@@ -123,6 +123,8 @@ class TradingEngine:
             position.current_price = coin.price
             position.highest_price = max(position.highest_price or position.entry_price, coin.price)
             position.lowest_price = min(position.lowest_price or position.entry_price, coin.price)
+            if self._apply_breakeven(position):
+                db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
             self._apply_trailing_stop(position)
             position.pnl = self._pnl(position, coin.price)
             exit_reason = self._exit_reason(position)
@@ -149,8 +151,7 @@ class TradingEngine:
 
     async def _open_position(self, db: AsyncSession, coin: MarketCoin, signal: str, balance: float, settings: RiskSettings) -> Position | None:
         side = "LONG" if signal == "BUY" else "SHORT"
-        stop = coin.price * (1 - settings.stop_loss_percent / 100) if side == "LONG" else coin.price * (1 + settings.stop_loss_percent / 100)
-        take = coin.price * (1 + settings.take_profit_percent / 100) if side == "LONG" else coin.price * (1 - settings.take_profit_percent / 100)
+        stop, take, initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
         volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
         if volume <= 0:
             return None
@@ -165,8 +166,7 @@ class TradingEngine:
         if entry_order.status != OrderStatus.FILLED.value or not entry_order.average_price:
             return None
         entry_price = entry_order.average_price
-        stop = entry_price * (1 - settings.stop_loss_percent / 100) if side == "LONG" else entry_price * (1 + settings.stop_loss_percent / 100)
-        take = entry_price * (1 + settings.take_profit_percent / 100) if side == "LONG" else entry_price * (1 - settings.take_profit_percent / 100)
+        stop, take, initial_risk = self._exit_plan(entry_price, coin.atr, side, settings)
         position = Position(
             symbol=coin.symbol,
             side=side,
@@ -175,6 +175,10 @@ class TradingEngine:
             volume=volume,
             stop=stop,
             take=take,
+            initial_risk=initial_risk,
+            breakeven_applied=False,
+            breakeven_trigger_r=settings.breakeven_trigger_r,
+            breakeven_offset_percent=settings.breakeven_offset_percent,
             trailing_stop_percent=settings.trailing_stop_percent,
             highest_price=entry_price,
             lowest_price=entry_price,
@@ -182,6 +186,15 @@ class TradingEngine:
         db.add(position)
         db.add(Trade(symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
+
+    def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
+        percent_risk = entry_price * settings.stop_loss_percent / 100
+        atr_risk = atr * settings.atr_stop_multiplier if atr > 0 else 0
+        initial_risk = round(max(atr_risk, percent_risk), 8)
+        reward = initial_risk * settings.risk_reward_ratio
+        if side == "LONG":
+            return round(entry_price - initial_risk, 8), round(entry_price + reward, 8), initial_risk
+        return round(entry_price + initial_risk, 8), round(entry_price - reward, 8), initial_risk
 
     def _exposure_gate(
         self,
@@ -192,7 +205,7 @@ class TradingEngine:
         exposure: dict,
     ) -> tuple[bool, str, float]:
         side = "LONG" if signal == "BUY" else "SHORT"
-        stop = coin.price * (1 - settings.stop_loss_percent / 100) if side == "LONG" else coin.price * (1 + settings.stop_loss_percent / 100)
+        stop, _take, _initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
         volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
         candidate_notional = self.risk.position_notional(coin.price, volume)
         accepted, reason = self.risk.can_add_exposure(
@@ -273,6 +286,24 @@ class TradingEngine:
         else:
             trailing_stop = position.lowest_price * (1 + position.trailing_stop_percent / 100)
             position.stop = min(position.stop, trailing_stop)
+
+    def _apply_breakeven(self, position: Position) -> bool:
+        if position.breakeven_applied:
+            return False
+        initial_risk = position.initial_risk or abs(position.entry_price - position.stop)
+        if initial_risk <= 0:
+            return False
+        trigger = initial_risk * (position.breakeven_trigger_r or 1.0)
+        offset = position.entry_price * (position.breakeven_offset_percent or 0.0) / 100
+        if position.side == "LONG" and position.current_price >= position.entry_price + trigger:
+            position.stop = max(position.stop, position.entry_price + offset)
+            position.breakeven_applied = True
+            return True
+        if position.side == "SHORT" and position.current_price <= position.entry_price - trigger:
+            position.stop = min(position.stop, position.entry_price - offset)
+            position.breakeven_applied = True
+            return True
+        return False
 
     def _exit_reason(self, position: Position) -> str | None:
         if position.side == "LONG":
