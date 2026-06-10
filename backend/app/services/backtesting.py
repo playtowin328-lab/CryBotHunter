@@ -20,6 +20,34 @@ class BacktestReport:
     total_profit: float = 0.0
 
 
+@dataclass
+class WalkForwardWindow:
+    index: int
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+    parameters: dict[str, float]
+    train_profit: float
+    test_profit: float
+    test_win_rate: float
+    test_profit_factor: float
+    test_max_drawdown: float
+    test_trades_count: int
+
+
+@dataclass
+class WalkForwardReport:
+    windows: list[WalkForwardWindow]
+    window_count: int
+    profitable_windows: int
+    total_profit: float
+    average_window_profit: float
+    average_win_rate: float
+    average_profit_factor: float
+    max_drawdown: float
+
+
 class BacktestingService:
     def __init__(self) -> None:
         self.scanner = MarketScanner()
@@ -102,6 +130,78 @@ class BacktestingService:
                 volume = risk_per_trade / abs(entry - stop)
                 position = {"side": "LONG" if signal.signal == "BUY" else "SHORT", "entry": entry, "stop": stop, "take": take, "volume": volume}
         return self.summarize(profits)
+
+    def walk_forward(
+        self,
+        candles: list[Candle],
+        train_size: int = 300,
+        test_size: int = 120,
+        step_size: int = 120,
+    ) -> WalkForwardReport:
+        if len(candles) < train_size + test_size:
+            return self._walk_forward_summary([])
+
+        windows: list[WalkForwardWindow] = []
+        index = 0
+        for start in range(0, len(candles) - train_size - test_size + 1, step_size):
+            train = candles[start : start + train_size]
+            test = candles[start + train_size : start + train_size + test_size]
+            parameters, train_report = self._best_parameters(train)
+            test_report = self.run(test, **parameters)
+            windows.append(
+                WalkForwardWindow(
+                    index=index,
+                    train_start=train[0].timestamp.isoformat(),
+                    train_end=train[-1].timestamp.isoformat(),
+                    test_start=test[0].timestamp.isoformat(),
+                    test_end=test[-1].timestamp.isoformat(),
+                    parameters=parameters,
+                    train_profit=train_report.total_profit,
+                    test_profit=test_report.total_profit,
+                    test_win_rate=test_report.win_rate,
+                    test_profit_factor=test_report.profit_factor,
+                    test_max_drawdown=test_report.max_drawdown,
+                    test_trades_count=test_report.trades_count,
+                )
+            )
+            index += 1
+        return self._walk_forward_summary(windows)
+
+    def _best_parameters(self, candles: list[Candle]) -> tuple[dict[str, float], BacktestReport]:
+        candidates: list[dict[str, float]] = []
+        for stop in [1.0, 1.5, 2.0]:
+            for take in [2.0, 3.0, 4.0]:
+                for trailing in [0.0, 0.8, 1.2]:
+                    candidates.append(
+                        {
+                            "risk_per_trade": 10.0,
+                            "stop_loss_percent": stop,
+                            "take_profit_percent": take,
+                            "trailing_stop_percent": trailing,
+                        }
+                    )
+        scored: list[tuple[float, dict[str, float], BacktestReport]] = []
+        for parameters in candidates:
+            report = self.run(candles, **parameters)
+            score = report.total_profit + report.profit_factor * 10 + report.win_rate * 0.25 - report.max_drawdown
+            scored.append((score, parameters, report))
+        _score, parameters, report = max(scored, key=lambda item: item[0])
+        return parameters, report
+
+    def _walk_forward_summary(self, windows: list[WalkForwardWindow]) -> WalkForwardReport:
+        if not windows:
+            return WalkForwardReport([], 0, 0, 0, 0, 0, 0, 0)
+        total_profit = round(sum(window.test_profit for window in windows), 2)
+        return WalkForwardReport(
+            windows=windows,
+            window_count=len(windows),
+            profitable_windows=sum(1 for window in windows if window.test_profit > 0),
+            total_profit=total_profit,
+            average_window_profit=round(total_profit / len(windows), 2),
+            average_win_rate=round(sum(window.test_win_rate for window in windows) / len(windows), 2),
+            average_profit_factor=round(sum(window.test_profit_factor for window in windows) / len(windows), 2),
+            max_drawdown=round(max(window.test_max_drawdown for window in windows), 2),
+        )
 
     def summarize(self, profits: list[float]) -> BacktestReport:
         wins = [value for value in profits if value > 0]

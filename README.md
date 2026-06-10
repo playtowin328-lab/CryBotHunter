@@ -174,6 +174,7 @@ Supported commands:
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
 - Reconciles local order state through `POST /api/v1/orders/reconcile` and Telegram `/reconcile`.
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
+- Runs walk-forward backtests through `/api/v1/trading/backtest/walk-forward` to validate optimized parameters on unseen windows.
 - Runs Strategy Lab optimization through `/api/v1/strategy-lab/optimize` and stores top strategy configurations.
 - Provides safe AI Trade Committee decisions through `/api/v1/agents/analyze`; agents vote, veto weak setups, and audit every decision while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
@@ -189,6 +190,6 @@ Supported commands:
 - Wire `ExchangeClient` to authenticated CCXT clients for Binance and Bybit.
 - Add live candle ingestion and persist historical candles for 100,000+ samples.
 - Train and version ML models for long/short probability.
-- Expand Strategy Lab with walk-forward validation, multi-symbol optimization, and ML feature selection.
+- Expand Strategy Lab with multi-symbol optimization, ML feature selection, and automated model promotion rules.
 - Replace Telegram polling with webhook mode if lower latency is needed.
 - Add pytest coverage for strategy, risk manager, auth, and trading engine.

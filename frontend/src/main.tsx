@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -225,6 +225,7 @@ function DashboardView() {
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
+  const [walkForward, setWalkForward] = React.useState<WalkForwardReport | null>(null);
   const [historyResult, setHistoryResult] = React.useState<HistoryIngest | null>(null);
   const [run, setRun] = React.useState<TradingRun | null>(null);
   const [tick, setTick] = React.useState<TradingTick | null>(null);
@@ -313,11 +314,26 @@ function DashboardView() {
     }
   }
 
+  async function runWalkForward() {
+    try {
+      setLoading(true);
+      setError("");
+      const symbol = encodeURIComponent("BTC/USDT");
+      const { data } = await api.post<WalkForwardReport>(`/trading/backtest/walk-forward?symbol=${symbol}&timeframe=1h&limit=1000`);
+      setWalkForward(data);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
         <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Backtest BTC</button>
+        <button className="btn" onClick={runWalkForward} disabled={loading}><BarChart3 size={16} /> Walk-forward</button>
         <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Optimize</button>
         <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
@@ -368,6 +384,19 @@ function DashboardView() {
             <Metric label="Max Drawdown" value={`$${fmt(backtest?.max_drawdown)}`} tone="bad" />
             <Metric label="Avg Profit" value={`$${fmt(backtest?.average_profit)}`} tone="good" />
           </div>
+          {walkForward && (
+            <>
+              <div className="table-title mt-4">Walk-forward</div>
+              <div className="mini-grid">
+                <Metric label="Windows" value={`${walkForward.profitable_windows}/${walkForward.window_count}`} />
+                <Metric label="WF Profit" value={`$${fmt(walkForward.total_profit)}`} tone={walkForward.total_profit >= 0 ? "good" : "bad"} />
+                <Metric label="Avg Window" value={`$${fmt(walkForward.average_window_profit)}`} />
+                <Metric label="Avg Win Rate" value={`${fmt(walkForward.average_win_rate)}%`} />
+                <Metric label="Avg PF" value={fmt(walkForward.average_profit_factor)} />
+                <Metric label="Worst DD" value={`$${fmt(walkForward.max_drawdown)}`} tone="bad" />
+              </div>
+            </>
+          )}
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />

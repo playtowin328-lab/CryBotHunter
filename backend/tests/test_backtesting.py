@@ -31,3 +31,11 @@ def test_backtest_returns_report_for_candles():
     assert report.trades_count >= 0
     assert report.win_rate >= 0
     assert report.max_drawdown >= 0
+
+
+def test_walk_forward_returns_window_summary():
+    report = BacktestingService().walk_forward(candles(520), train_size=260, test_size=120, step_size=120)
+    assert report.window_count >= 1
+    assert report.profitable_windows >= 0
+    assert len(report.windows) == report.window_count
+    assert report.windows[0].parameters["risk_per_trade"] == 10.0

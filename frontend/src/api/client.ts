@@ -130,6 +130,30 @@ export type BacktestReport = {
   total_profit: number;
 };
 
+export type WalkForwardReport = {
+  windows: Array<{
+    index: number;
+    train_start: string;
+    train_end: string;
+    test_start: string;
+    test_end: string;
+    parameters: Record<string, number>;
+    train_profit: number;
+    test_profit: number;
+    test_win_rate: number;
+    test_profit_factor: number;
+    test_max_drawdown: number;
+    test_trades_count: number;
+  }>;
+  window_count: number;
+  profitable_windows: number;
+  total_profit: number;
+  average_window_profit: number;
+  average_win_rate: number;
+  average_profit_factor: number;
+  max_drawdown: number;
+};
+
 export type HistoryIngest = {
   symbol: string;
   timeframe: string;

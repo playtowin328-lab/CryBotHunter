@@ -6,7 +6,7 @@ from app.api.deps import current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.entities import Position, User, UserSettings
-from app.schemas.dto import ActionMessage, BacktestOut, PerformanceGuardOut, SystemStatusOut, TradingRunOut, TradingTickOut
+from app.schemas.dto import ActionMessage, BacktestOut, PerformanceGuardOut, SystemStatusOut, TradingRunOut, TradingTickOut, WalkForwardOut
 from app.services.backtesting import BacktestingService
 from app.services.control import TradingControlService
 from app.services.history import HistoricalDataService
@@ -127,3 +127,27 @@ async def run_backtest(
         candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
     report = BacktestingService().run(candles)
     return BacktestOut(**report.__dict__)
+
+
+@router.post("/backtest/walk-forward", response_model=WalkForwardOut)
+async def run_walk_forward_backtest(
+    symbol: str = "BTC/USDT",
+    timeframe: str = "1h",
+    limit: int = 1000,
+    train_size: int = 300,
+    test_size: int = 120,
+    step_size: int = 120,
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> WalkForwardOut:
+    bounded_limit = max(500, min(limit, 3000))
+    train_size = max(220, min(train_size, 1000))
+    test_size = max(80, min(test_size, 500))
+    step_size = max(40, min(step_size, test_size))
+    history = HistoricalDataService()
+    candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=bounded_limit)
+    if len(candles) < train_size + test_size:
+        await history.ingest(db, symbol=symbol, timeframe=timeframe, limit=bounded_limit)
+        candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=bounded_limit)
+    report = BacktestingService().walk_forward(candles, train_size=train_size, test_size=test_size, step_size=step_size)
+    return WalkForwardOut(**report.__dict__)

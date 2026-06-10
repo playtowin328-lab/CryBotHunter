@@ -160,6 +160,32 @@ class BacktestOut(BaseModel):
     total_profit: float = 0
 
 
+class WalkForwardWindowOut(BaseModel):
+    index: int
+    train_start: str
+    train_end: str
+    test_start: str
+    test_end: str
+    parameters: dict[str, float]
+    train_profit: float
+    test_profit: float
+    test_win_rate: float
+    test_profit_factor: float
+    test_max_drawdown: float
+    test_trades_count: int
+
+
+class WalkForwardOut(BaseModel):
+    windows: list[WalkForwardWindowOut]
+    window_count: int
+    profitable_windows: int
+    total_profit: float
+    average_window_profit: float
+    average_win_rate: float
+    average_profit_factor: float
+    max_drawdown: float
+
+
 class HistoryIngestOut(BaseModel):
     symbol: str
     timeframe: str
