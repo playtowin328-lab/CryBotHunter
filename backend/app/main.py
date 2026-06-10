@@ -71,6 +71,9 @@ async def deep_health() -> dict[str, object]:
     checks["panic_paused"] = paused
     checks["panic_reason"] = reason
     checks["paper_trading"] = settings.paper_trading
+    checks["live_trading_enabled"] = settings.live_trading_enabled
+    checks["exchange_sandbox_enabled"] = settings.exchange_sandbox_enabled
+    checks["allow_live_trading_without_sandbox"] = settings.allow_live_trading_without_sandbox
     checks["market_data_mode"] = settings.market_data_mode
     checks["llm_provider"] = settings.llm_provider
     return checks

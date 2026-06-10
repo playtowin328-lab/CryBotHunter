@@ -36,7 +36,14 @@ class ExecutionService:
             if self.settings.paper_trading:
                 self._fill_paper(order, reference_price)
             else:
-                raw = await self.exchange.create_order(symbol, side, amount, "market")
+                raw = await self.exchange.create_order(
+                    symbol,
+                    side,
+                    amount,
+                    "market",
+                    client_order_id=self._client_order_id(order.id, reason),
+                    reduce_only=reason.startswith("EXIT") or reason == "PARTIAL_TAKE_PROFIT",
+                )
                 order.exchange_order_id = str(raw.get("id") or "")
                 order.status = OrderStatus.FILLED.value
                 order.filled_amount = float(raw.get("filled") or amount)
@@ -66,3 +73,7 @@ class ExecutionService:
             "fee_rate": self.settings.paper_fee_rate,
             "slippage_bps": self.settings.paper_slippage_bps,
         }
+
+    def _client_order_id(self, order_id: int, reason: str) -> str:
+        safe_reason = "".join(char for char in reason.lower() if char.isalnum() or char == "_")[:24]
+        return f"cbh-{order_id}-{safe_reason}"

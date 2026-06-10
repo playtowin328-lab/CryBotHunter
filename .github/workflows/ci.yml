@@ -17,10 +17,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "backend/requirements.txt"
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
+      - name: Compile backend
+        run: python -m compileall app tests
+      - name: Check Alembic heads
+        run: alembic heads
       - name: Run backend tests
-        run: pytest
+        env:
+          PAPER_TRADING: "true"
+          LIVE_TRADING_ENABLED: "false"
+          EXCHANGE_SANDBOX_ENABLED: "true"
+          ALLOW_LIVE_TRADING_WITHOUT_SANDBOX: "false"
+          MARKET_DATA_MODE: "paper"
+        run: python -m pytest
 
   frontend:
     runs-on: ubuntu-latest

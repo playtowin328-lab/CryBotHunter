@@ -27,19 +27,30 @@ class ExchangeClient:
         client = self._client(authenticated=False)
         return await asyncio.to_thread(client.fetch_ohlcv, symbol, timeframe, None, limit)
 
-    async def create_order(self, symbol: str, side: str, amount: float, order_type: str = "market") -> dict[str, str | float]:
+    async def create_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        order_type: str = "market",
+        client_order_id: str | None = None,
+        reduce_only: bool = False,
+    ) -> dict[str, str | float]:
         if self.settings.paper_trading:
             return {"id": f"paper-{symbol}-{side}", "symbol": symbol, "side": side, "amount": amount, "type": order_type}
         if not self.settings.live_trading_enabled:
             raise RuntimeError("Live trading is disabled. Set LIVE_TRADING_ENABLED=true only after paper validation.")
+        self._assert_live_safety()
         client = self._client(authenticated=True)
-        return await asyncio.to_thread(client.create_order, symbol, order_type, side, amount)
+        params = self._order_params(client_order_id=client_order_id, reduce_only=reduce_only)
+        return await asyncio.to_thread(client.create_order, symbol, order_type, side, amount, None, params)
 
     async def fetch_order(self, order_id: str, symbol: str) -> dict[str, Any]:
         if self.settings.paper_trading:
             return {"id": order_id, "symbol": symbol, "status": "closed"}
         if not self.settings.live_trading_enabled:
             raise RuntimeError("Live trading is disabled.")
+        self._assert_live_safety()
         client = self._client(authenticated=True)
         return await asyncio.to_thread(client.fetch_order, order_id, symbol)
 
@@ -53,4 +64,24 @@ class ExchangeClient:
             params["secret"] = self.settings.exchange_secret_key
             if self.settings.exchange_passphrase:
                 params["password"] = self.settings.exchange_passphrase
-        return exchange_class(params)
+        client = exchange_class(params)
+        if self.settings.exchange_sandbox_enabled and hasattr(client, "set_sandbox_mode"):
+            client.set_sandbox_mode(True)
+        return client
+
+    def _assert_live_safety(self) -> None:
+        if self.settings.exchange_sandbox_enabled:
+            return
+        if self.settings.allow_live_trading_without_sandbox:
+            return
+        raise RuntimeError("Live exchange execution without sandbox is blocked by safety policy.")
+
+    def _order_params(self, client_order_id: str | None = None, reduce_only: bool = False) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if client_order_id:
+            params["clientOrderId"] = client_order_id
+            if self.exchange == "bybit":
+                params["orderLinkId"] = client_order_id
+        if reduce_only:
+            params["reduceOnly"] = True
+        return params

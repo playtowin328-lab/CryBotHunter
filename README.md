@@ -47,6 +47,8 @@ JWT_SECRET=replace-with-long-random-secret
 ENCRYPTION_KEY=fernet-key-generated-for-production
 PAPER_TRADING=true
 LIVE_TRADING_ENABLED=false
+EXCHANGE_SANDBOX_ENABLED=true
+ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false
 MARKET_DATA_MODE=paper
 CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
@@ -92,6 +94,8 @@ JWT_SECRET=the-same-secret-as-backend
 ENCRYPTION_KEY=the-same-fernet-key-as-backend
 PAPER_TRADING=true
 LIVE_TRADING_ENABLED=false
+EXCHANGE_SANDBOX_ENABLED=true
+ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false
 MARKET_DATA_MODE=paper
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
@@ -102,7 +106,7 @@ MAX_GROSS_EXPOSURE_PERCENT=300
 MAX_SYMBOL_EXPOSURE_PERCENT=100
 ```
 
-Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. Keep `LIVE_TRADING_ENABLED=false` until order execution is reviewed, tested, and deliberately enabled.
+Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
 Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtesting and future ML datasets.
 
@@ -152,6 +156,7 @@ Supported commands:
 ## Current MVP Behavior
 
 - Uses paper trading by default through `PAPER_TRADING=true`.
+- Blocks non-sandbox live exchange execution unless `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=true` is deliberately set.
 - Supports a dedicated `APP_PROCESS=trader` worker that loops automatically, manages open positions, and scans for new entries.
 - Registers/logs in users with JWT.
 - Stores exchange API keys encrypted and returns only masked values.

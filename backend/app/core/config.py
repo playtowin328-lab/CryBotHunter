@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     default_exchange: str = "binance"
     paper_trading: bool = True
     live_trading_enabled: bool = False
+    exchange_sandbox_enabled: bool = True
+    allow_live_trading_without_sandbox: bool = False
     market_data_mode: str = "paper"
     paper_fee_rate: float = 0.0004
     paper_slippage_bps: float = 2.0
