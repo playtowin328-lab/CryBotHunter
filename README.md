@@ -98,6 +98,8 @@ Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while 
 
 Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtesting and future ML datasets.
 
+Use `POST /api/v1/strategy-lab/optimize` to run a parameter grid search against stored candles and save the strongest strategy configurations. Use `GET /api/v1/strategy-lab/results` to show the latest optimizer results in the dashboard.
+
 Use `POST /api/v1/agents/analyze` to run structured market and risk agents. Every agent decision is stored in `agent_decisions` for auditability.
 
 Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` to enable the optional LLM advisor. It can only advise through structured JSON; it cannot open trades directly.
@@ -154,6 +156,7 @@ Supported commands:
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
 - Reconciles local order state through `POST /api/v1/orders/reconcile` and Telegram `/reconcile`.
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
+- Runs Strategy Lab optimization through `/api/v1/strategy-lab/optimize` and stores top strategy configurations.
 - Provides safe AI-agent style decisions through `/api/v1/agents/analyze`; agents advise and audit, while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
 - Provides panic/resume controls through API and Telegram.
@@ -168,6 +171,6 @@ Supported commands:
 - Wire `ExchangeClient` to authenticated CCXT clients for Binance and Bybit.
 - Add live candle ingestion and persist historical candles for 100,000+ samples.
 - Train and version ML models for long/short probability.
-- Expand backtesting to replay historical candles.
+- Expand Strategy Lab with walk-forward validation, multi-symbol optimization, and ML feature selection.
 - Replace Telegram polling with webhook mode if lower latency is needed.
 - Add pytest coverage for strategy, risk manager, auth, and trading engine.

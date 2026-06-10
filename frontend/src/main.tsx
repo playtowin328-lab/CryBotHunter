@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, SystemStatus, TradingRun, TradingTick } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -196,6 +196,7 @@ function NavButton(props: { active: boolean; onClick: () => void; icon: React.Re
 function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
   const [orders, setOrders] = React.useState<Order[]>([]);
+  const [optimizations, setOptimizations] = React.useState<StrategyOptimization[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
@@ -208,18 +209,20 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
         api.get("/trading/guard"),
         api.get("/trading/backtest/sample"),
-        api.get("/orders")
+        api.get("/orders"),
+        api.get("/strategy-lab/results")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
       setGuard(guardRes.data);
       setBacktest(backtestRes.data);
       setOrders(ordersRes.data);
+      setOptimizations(optimizationsRes.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -271,11 +274,26 @@ function DashboardView() {
     }
   }
 
+  async function optimizeStrategy() {
+    try {
+      setLoading(true);
+      setError("");
+      const symbol = encodeURIComponent("BTC/USDT");
+      const { data } = await api.post<StrategyOptimization[]>(`/strategy-lab/optimize?symbol=${symbol}&timeframe=1h&limit=500`);
+      setOptimizations(data);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
         <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Backtest BTC</button>
+        <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Optimize</button>
         <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
       </Header>
@@ -322,7 +340,36 @@ function DashboardView() {
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />
+      <OptimizationTable items={optimizations} />
     </section>
+  );
+}
+
+function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Strategy Lab Top Configs</div>
+      <table>
+        <thead>
+          <tr><th>Symbol</th><th>Score</th><th>Stop</th><th>Take</th><th>Trail</th><th>Win Rate</th><th>Profit Factor</th><th>Total</th></tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => (
+            <tr key={`${item.symbol}-${item.score}-${index}`}>
+              <td className="font-semibold">{item.symbol}</td>
+              <td>{fmt(item.score)}</td>
+              <td>{fmt(item.parameters.stop_loss_percent)}%</td>
+              <td>{fmt(item.parameters.take_profit_percent)}%</td>
+              <td>{fmt(item.parameters.trailing_stop_percent)}%</td>
+              <td>{fmt(item.win_rate)}%</td>
+              <td>{fmt(item.profit_factor)}</td>
+              <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
+            </tr>
+          ))}
+          {!items.length && <EmptyRow cols={8} text="Run Optimize to generate strategy configs" />}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

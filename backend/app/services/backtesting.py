@@ -25,7 +25,14 @@ class BacktestingService:
         self.scanner = MarketScanner()
         self.strategy = StrategyCore()
 
-    def run(self, candles: list[Candle], risk_per_trade: float = 10.0, stop_loss_percent: float = 1.5, take_profit_percent: float = 3.0) -> BacktestReport:
+    def run(
+        self,
+        candles: list[Candle],
+        risk_per_trade: float = 10.0,
+        stop_loss_percent: float = 1.5,
+        take_profit_percent: float = 3.0,
+        trailing_stop_percent: float = 0.0,
+    ) -> BacktestReport:
         if len(candles) < 220:
             return self.summarize([])
         frame = pd.DataFrame(
@@ -47,6 +54,9 @@ class BacktestingService:
             if position:
                 exit_price = None
                 if position["side"] == "LONG":
+                    if trailing_stop_percent > 0:
+                        trailed_stop = float(row["close"]) * (1 - trailing_stop_percent / 100)
+                        position["stop"] = max(position["stop"], trailed_stop)
                     if row["low"] <= position["stop"]:
                         exit_price = position["stop"]
                     elif row["high"] >= position["take"]:
@@ -55,6 +65,9 @@ class BacktestingService:
                         profits.append((exit_price - position["entry"]) * position["volume"])
                         position = None
                 else:
+                    if trailing_stop_percent > 0:
+                        trailed_stop = float(row["close"]) * (1 + trailing_stop_percent / 100)
+                        position["stop"] = min(position["stop"], trailed_stop)
                     if row["high"] >= position["stop"]:
                         exit_price = position["stop"]
                     elif row["low"] <= position["take"]:

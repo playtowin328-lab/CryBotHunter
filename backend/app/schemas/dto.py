@@ -145,6 +145,22 @@ class HistoryIngestOut(BaseModel):
     inserted: int
 
 
+class StrategyOptimizationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int | None = None
+    symbol: str
+    timeframe: str
+    parameters: dict
+    score: float
+    win_rate: float
+    profit_factor: float
+    max_drawdown: float
+    total_profit: float
+    trades_count: int
+    created_at: datetime | None = None
+
+
 class ActionMessage(BaseModel):
     ok: bool
     message: str

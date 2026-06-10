@@ -123,6 +123,20 @@ export type HistoryIngest = {
   inserted: number;
 };
 
+export type StrategyOptimization = {
+  id?: number | null;
+  symbol: string;
+  timeframe: string;
+  parameters: Record<string, number>;
+  score: number;
+  win_rate: number;
+  profit_factor: number;
+  max_drawdown: number;
+  total_profit: number;
+  trades_count: number;
+  created_at?: string | null;
+};
+
 export type ActionMessage = {
   ok: boolean;
   message: string;

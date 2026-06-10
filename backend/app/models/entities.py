@@ -149,6 +149,22 @@ class AgentDecision(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StrategyOptimization(Base):
+    __tablename__ = "strategy_optimizations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    timeframe: Mapped[str] = mapped_column(String(16), index=True)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    win_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    profit_factor: Mapped[float] = mapped_column(Float, default=0.0)
+    max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
+    total_profit: Mapped[float] = mapped_column(Float, default=0.0)
+    trades_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class LogEntry(Base):
     __tablename__ = "logs"
 
