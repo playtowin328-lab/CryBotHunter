@@ -211,7 +211,9 @@ class AgentOrchestrator:
 
     async def analyze(self, db: AsyncSession, symbol: str) -> AgentAnalysisOut:
         coins = await self.scanner.scan([symbol])
-        coin = coins[0]
+        return await self.analyze_coin(db, coins[0])
+
+    async def analyze_coin(self, db: AsyncSession, coin: MarketCoin) -> AgentAnalysisOut:
         market = self.market_agent.decide(coin)
         llm = await self.llm_agent.decide(coin, market)
         committee = [agent.decide(coin) for agent in self.committee_agents]
@@ -229,7 +231,7 @@ class AgentOrchestrator:
         await self._persist(db, risk)
         await db.commit()
         return AgentAnalysisOut(
-            symbol=symbol,
+            symbol=coin.symbol,
             market=market,
             llm=llm,
             risk=risk,

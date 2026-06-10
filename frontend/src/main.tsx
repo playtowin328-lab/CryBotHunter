@@ -328,6 +328,7 @@ function DashboardView() {
         <StatusItem label="Exchange" value={status?.exchange ?? "-"} />
         <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} chat` : "Disabled"} good={Boolean(status?.telegram_enabled)} />
         <StatusItem label="Open positions" value={String(status?.open_positions ?? 0)} />
+        <StatusItem label="Committee" value={status?.ai_committee_enabled ? `${fmt((status.ai_committee_min_consensus ?? 0) * 100)}%` : "Off"} good={status?.ai_committee_enabled ?? true} />
         <StatusItem label="Guard" value={guard?.allowed ? "Allowed" : "Blocked"} good={guard?.allowed ?? true} />
       </div>
       <div className="metric-grid">

@@ -55,6 +55,8 @@ TRADER_LOOP_SECONDS=60
 LLM_PROVIDER=none
 OPENAI_API_KEY=
 LLM_MODEL=gpt-4.1-mini
+AI_COMMITTEE_ENABLED=true
+AI_COMMITTEE_MIN_CONSENSUS=0.66
 ```
 
 Frontend variables:
@@ -92,6 +94,8 @@ MARKET_DATA_MODE=paper
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
+AI_COMMITTEE_ENABLED=true
+AI_COMMITTEE_MIN_CONSENSUS=0.66
 ```
 
 Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. Keep `LIVE_TRADING_ENABLED=false` until order execution is reviewed, tested, and deliberately enabled.
@@ -150,6 +154,7 @@ Supported commands:
 - Scans synthetic market data and calculates ratings from volume, trend, volatility, volume growth, and liquidity.
 - Produces BUY, SELL, or WAIT signals based on EMA/RSI/price/volume/rating rules.
 - Applies risk checks before opening paper positions.
+- Uses the AI Trade Committee as an optional final entry gate before opening positions.
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.

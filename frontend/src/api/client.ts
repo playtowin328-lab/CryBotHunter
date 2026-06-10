@@ -95,6 +95,8 @@ export type SystemStatus = {
   telegram_chat_count: number;
   open_positions: number;
   daily_pnl: number;
+  ai_committee_enabled: boolean;
+  ai_committee_min_consensus: number;
 };
 
 export type PerformanceGuard = {

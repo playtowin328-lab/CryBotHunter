@@ -117,6 +117,8 @@ class SystemStatusOut(BaseModel):
     daily_pnl: float
     panic_paused: bool = False
     panic_reason: str | None = None
+    ai_committee_enabled: bool = True
+    ai_committee_min_consensus: float = 0.66
 
 
 class PerformanceGuardOut(BaseModel):

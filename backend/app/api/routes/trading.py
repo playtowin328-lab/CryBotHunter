@@ -66,6 +66,8 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         daily_pnl=float(daily_pnl.scalar_one()),
         panic_paused=paused,
         panic_reason=panic_reason,
+        ai_committee_enabled=settings.ai_committee_enabled,
+        ai_committee_min_consensus=settings.ai_committee_min_consensus,
     )
 
 

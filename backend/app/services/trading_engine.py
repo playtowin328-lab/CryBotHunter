@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
-from app.schemas.dto import MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
+from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
+from app.services.agents import AgentOrchestrator
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
 from app.services.market_scanner import MarketScanner
@@ -22,7 +24,9 @@ class TradingEngine:
         self.exchange = ExchangeClient()
         self.execution = ExecutionService()
         self.guard = PerformanceGuardService()
+        self.agents = AgentOrchestrator()
         self.telegram = TelegramNotifier()
+        self.settings = get_settings()
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings) -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
@@ -54,6 +58,14 @@ class TradingEngine:
                 accepted, reason = False, "position already open for symbol"
             else:
                 accepted, reason = self.risk.can_open(signal, settings, open_count, daily_pnl)
+            if accepted:
+                committee = await self._committee_gate(db, coin, signal.signal)
+                if committee and not self._committee_allows_signal(committee, signal.signal):
+                    accepted = False
+                    reason = (
+                        f"committee rejected: final={committee.final_action}, "
+                        f"consensus={committee.consensus_score:.2f}, confidence={committee.final_confidence:.2f}"
+                    )
             if accepted:
                 position = await self._open_position(db, coin, signal.signal, balance, settings)
                 if position:
@@ -163,6 +175,28 @@ class TradingEngine:
         db.add(position)
         db.add(Trade(symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
+
+    async def _committee_gate(self, db: AsyncSession, coin: MarketCoin, signal: str) -> AgentAnalysisOut | None:
+        if not self.settings.ai_committee_enabled or signal not in {"BUY", "SELL"}:
+            return None
+        analysis = await self.agents.analyze_coin(db, coin)
+        db.add(
+            LogEntry(
+                level="INFO",
+                message=(
+                    f"AI committee {coin.symbol}: final={analysis.final_action}, "
+                    f"consensus={analysis.consensus_score:.2f}, confidence={analysis.final_confidence:.2f}"
+                ),
+            )
+        )
+        return analysis
+
+    def _committee_allows_signal(self, analysis: AgentAnalysisOut, signal: str) -> bool:
+        return (
+            analysis.approved
+            and analysis.final_action == signal
+            and analysis.consensus_score >= self.settings.ai_committee_min_consensus
+        )
 
     async def _close_position(self, db: AsyncSession, position: Position, exit_price: float, reason: str) -> None:
         exit_order = await self.execution.execute_market(

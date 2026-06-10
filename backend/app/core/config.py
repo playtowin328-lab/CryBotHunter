@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     guard_min_win_rate: float = 35.0
     guard_max_loss_streak: int = 3
     guard_min_total_profit: float = -50.0
+    ai_committee_enabled: bool = True
+    ai_committee_min_consensus: float = 0.66
 
     @field_validator("cors_origins", mode="before")
     @classmethod
