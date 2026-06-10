@@ -42,3 +42,29 @@ def test_risk_blocks_daily_loss_limit():
 def test_position_size_uses_loss_budget():
     size = RiskManager().position_size(balance=1000, risk_percent=1, entry_price=100, stop_price=98)
     assert size == 5
+
+
+def test_exposure_guard_blocks_gross_limit():
+    accepted, reason = RiskManager().can_add_exposure(
+        balance=1000,
+        current_gross_exposure=2900,
+        current_symbol_exposure=0,
+        candidate_notional=200,
+        max_gross_exposure_percent=300,
+        max_symbol_exposure_percent=100,
+    )
+    assert accepted is False
+    assert reason == "gross exposure limit reached"
+
+
+def test_exposure_guard_blocks_symbol_limit():
+    accepted, reason = RiskManager().can_add_exposure(
+        balance=1000,
+        current_gross_exposure=500,
+        current_symbol_exposure=950,
+        candidate_notional=100,
+        max_gross_exposure_percent=300,
+        max_symbol_exposure_percent=100,
+    )
+    assert accepted is False
+    assert reason == "symbol exposure limit reached"

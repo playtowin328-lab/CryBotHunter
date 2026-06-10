@@ -56,7 +56,14 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
     open_positions = (
         await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
     ).scalar_one()
+    exposure = (
+        await db.execute(
+            select(func.coalesce(func.sum(Position.current_price * Position.volume), 0.0)).where(Position.status == "OPEN")
+        )
+    ).scalar_one()
     daily_pnl = await db.execute(select(func.coalesce(func.sum(Position.pnl), 0.0)).where(Position.status == "OPEN"))
+    balance = 1000
+    gross_exposure = float(exposure)
     return SystemStatusOut(
         paper_trading=settings.paper_trading,
         exchange=user_settings.exchange,
@@ -68,6 +75,10 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         panic_reason=panic_reason,
         ai_committee_enabled=settings.ai_committee_enabled,
         ai_committee_min_consensus=settings.ai_committee_min_consensus,
+        gross_exposure=gross_exposure,
+        gross_exposure_percent=round(gross_exposure / balance * 100, 2),
+        max_gross_exposure_percent=settings.max_gross_exposure_percent,
+        max_symbol_exposure_percent=settings.max_symbol_exposure_percent,
     )
 
 

@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     guard_min_total_profit: float = -50.0
     ai_committee_enabled: bool = True
     ai_committee_min_consensus: float = 0.66
+    max_gross_exposure_percent: float = 300.0
+    max_symbol_exposure_percent: float = 100.0
 
     @field_validator("cors_origins", mode="before")
     @classmethod

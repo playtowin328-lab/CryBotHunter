@@ -119,6 +119,10 @@ class SystemStatusOut(BaseModel):
     panic_reason: str | None = None
     ai_committee_enabled: bool = True
     ai_committee_min_consensus: float = 0.66
+    gross_exposure: float = 0
+    gross_exposure_percent: float = 0
+    max_gross_exposure_percent: float = 300
+    max_symbol_exposure_percent: float = 100
 
 
 class PerformanceGuardOut(BaseModel):

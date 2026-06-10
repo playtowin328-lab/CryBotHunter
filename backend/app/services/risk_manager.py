@@ -40,3 +40,25 @@ class RiskManager:
         if price_risk <= 0:
             return 0
         return round(loss_budget / price_risk, 6)
+
+    def position_notional(self, price: float, volume: float) -> float:
+        return round(abs(price * volume), 4)
+
+    def can_add_exposure(
+        self,
+        balance: float,
+        current_gross_exposure: float,
+        current_symbol_exposure: float,
+        candidate_notional: float,
+        max_gross_exposure_percent: float,
+        max_symbol_exposure_percent: float,
+    ) -> tuple[bool, str]:
+        if balance <= 0:
+            return False, "balance is zero"
+        gross_limit = balance * max_gross_exposure_percent / 100
+        symbol_limit = balance * max_symbol_exposure_percent / 100
+        if current_gross_exposure + candidate_notional > gross_limit:
+            return False, "gross exposure limit reached"
+        if current_symbol_exposure + candidate_notional > symbol_limit:
+            return False, "symbol exposure limit reached"
+        return True, "exposure accepted"

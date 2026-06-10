@@ -97,6 +97,10 @@ export type SystemStatus = {
   daily_pnl: number;
   ai_committee_enabled: boolean;
   ai_committee_min_consensus: number;
+  gross_exposure: number;
+  gross_exposure_percent: number;
+  max_gross_exposure_percent: number;
+  max_symbol_exposure_percent: number;
 };
 
 export type PerformanceGuard = {

@@ -47,6 +47,7 @@ class TradingEngine:
         open_count = await self._open_positions_count(db)
         open_symbols = await self._open_symbols(db)
         daily_pnl = await self._daily_pnl(db)
+        exposure = await self._portfolio_exposure(db)
         decisions: list[TradingDecision] = []
 
         for coin in sorted(coins, key=lambda item: item.rating, reverse=True):
@@ -58,6 +59,10 @@ class TradingEngine:
                 accepted, reason = False, "position already open for symbol"
             else:
                 accepted, reason = self.risk.can_open(signal, settings, open_count, daily_pnl)
+            if accepted:
+                accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, settings, exposure)
+            else:
+                candidate_notional = 0.0
             if accepted:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
@@ -71,6 +76,8 @@ class TradingEngine:
                 if position:
                     open_count += 1
                     open_symbols.add(coin.symbol)
+                    exposure["gross"] += candidate_notional
+                    exposure["symbols"][coin.symbol] = exposure["symbols"].get(coin.symbol, 0.0) + candidate_notional
                     db.add(LogEntry(level="INFO", message=f"Opened {signal.signal} paper position for {coin.symbol}"))
                     message = (
                         f"Position opened\n"
@@ -176,6 +183,28 @@ class TradingEngine:
         db.add(Trade(symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
 
+    def _exposure_gate(
+        self,
+        coin: MarketCoin,
+        signal: str,
+        balance: float,
+        settings: RiskSettings,
+        exposure: dict,
+    ) -> tuple[bool, str, float]:
+        side = "LONG" if signal == "BUY" else "SHORT"
+        stop = coin.price * (1 - settings.stop_loss_percent / 100) if side == "LONG" else coin.price * (1 + settings.stop_loss_percent / 100)
+        volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
+        candidate_notional = self.risk.position_notional(coin.price, volume)
+        accepted, reason = self.risk.can_add_exposure(
+            balance=balance,
+            current_gross_exposure=exposure["gross"],
+            current_symbol_exposure=exposure["symbols"].get(coin.symbol, 0.0),
+            candidate_notional=candidate_notional,
+            max_gross_exposure_percent=self.settings.max_gross_exposure_percent,
+            max_symbol_exposure_percent=self.settings.max_symbol_exposure_percent,
+        )
+        return accepted, reason, candidate_notional
+
     async def _committee_gate(self, db: AsyncSession, coin: MarketCoin, signal: str) -> AgentAnalysisOut | None:
         if not self.settings.ai_committee_enabled or signal not in {"BUY", "SELL"}:
             return None
@@ -273,3 +302,13 @@ class TradingEngine:
     async def _daily_pnl(self, db: AsyncSession) -> float:
         result = await db.execute(select(func.coalesce(func.sum(Trade.profit), 0.0)))
         return float(result.scalar_one())
+
+    async def _portfolio_exposure(self, db: AsyncSession) -> dict:
+        result = await db.execute(select(Position).where(Position.status == "OPEN"))
+        symbols: dict[str, float] = {}
+        gross = 0.0
+        for position in result.scalars().all():
+            notional = self.risk.position_notional(position.current_price, position.volume)
+            gross += notional
+            symbols[position.symbol] = symbols.get(position.symbol, 0.0) + notional
+        return {"gross": round(gross, 4), "symbols": symbols}

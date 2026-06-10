@@ -1,5 +1,6 @@
 from app.models.entities import Position
-from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut
+from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin
+from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
 
@@ -10,6 +11,37 @@ def analysis(action: str, approved: bool = True, consensus_score: float = 0.8) -
         action=action,
         confidence=0.8,
         rationale="test",
+    )
+
+
+def coin() -> MarketCoin:
+    return MarketCoin(
+        symbol="BTC/USDT",
+        price=100,
+        volume_24h=1_000_000_000,
+        price_change_percent=2,
+        atr=2,
+        rsi=62,
+        ema20=105,
+        ema50=100,
+        ema200=90,
+        macd=1,
+        funding_rate=0.01,
+        open_interest=1_000_000_000,
+        rating=90,
+    )
+
+
+def risk_settings() -> RiskSettings:
+    return RiskSettings(
+        balance=1000,
+        risk_percent=1,
+        daily_risk_percent=3,
+        max_positions=3,
+        min_rating=80,
+        stop_loss_percent=1,
+        take_profit_percent=3,
+        trailing_stop_percent=0.8,
     )
     risk = AgentDecisionOut(
         agent_name="RiskSupervisorAgent",
@@ -91,3 +123,17 @@ def test_committee_gate_rejects_mismatch_or_low_consensus():
     engine = TradingEngine()
     assert not engine._committee_allows_signal(analysis("SELL"), "BUY")
     assert not engine._committee_allows_signal(analysis("BUY", consensus_score=0.4), "BUY")
+
+
+def test_exposure_gate_rejects_overloaded_portfolio():
+    engine = TradingEngine()
+    accepted, reason, candidate = engine._exposure_gate(
+        coin(),
+        "BUY",
+        balance=1000,
+        settings=risk_settings(),
+        exposure={"gross": 2950, "symbols": {}},
+    )
+    assert accepted is False
+    assert reason == "gross exposure limit reached"
+    assert candidate > 0
