@@ -160,6 +160,21 @@ export type HistoryIngest = {
   inserted: number;
 };
 
+export type HistoryBatchIngest = {
+  inserted: Record<string, number>;
+};
+
+export type HistoryReadiness = {
+  symbol: string;
+  timeframe: string;
+  candles: number;
+  target: number;
+  coverage_percent: number;
+  ready: boolean;
+  first_timestamp?: string | null;
+  last_timestamp?: string | null;
+};
+
 export type StrategyOptimization = {
   id?: number | null;
   symbol: string;

@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryIngest, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -227,6 +227,8 @@ function DashboardView() {
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
   const [walkForward, setWalkForward] = React.useState<WalkForwardReport | null>(null);
   const [historyResult, setHistoryResult] = React.useState<HistoryIngest | null>(null);
+  const [batchHistory, setBatchHistory] = React.useState<HistoryBatchIngest | null>(null);
+  const [readiness, setReadiness] = React.useState<HistoryReadiness[]>([]);
   const [run, setRun] = React.useState<TradingRun | null>(null);
   const [tick, setTick] = React.useState<TradingTick | null>(null);
   const [error, setError] = React.useState("");
@@ -235,13 +237,14 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
         api.get("/trading/guard"),
         api.get("/trading/backtest/sample"),
         api.get("/orders"),
-        api.get("/strategy-lab/results")
+        api.get("/strategy-lab/results"),
+        api.get("/market/history/readiness")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
@@ -249,6 +252,7 @@ function DashboardView() {
       setBacktest(backtestRes.data);
       setOrders(ordersRes.data);
       setOptimizations(optimizationsRes.data);
+      setReadiness(readinessRes.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -328,12 +332,27 @@ function DashboardView() {
     }
   }
 
+  async function ingestBatchHistory() {
+    try {
+      setLoading(true);
+      setError("");
+      const { data } = await api.post<HistoryBatchIngest>("/market/history/ingest/batch");
+      setBatchHistory(data);
+      setReadiness((await api.get<HistoryReadiness[]>("/market/history/readiness")).data);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
         <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
         <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Backtest BTC</button>
         <button className="btn" onClick={runWalkForward} disabled={loading}><BarChart3 size={16} /> Walk-forward</button>
+        <button className="btn" onClick={ingestBatchHistory} disabled={loading}><RefreshCw size={16} /> Ingest candles</button>
         <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Optimize</button>
         <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
@@ -400,8 +419,36 @@ function DashboardView() {
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />
+      <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
+  );
+}
+
+function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: HistoryBatchIngest | null }) {
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Dataset Readiness</div>
+      {batch && <p className="muted">Last batch inserted {Object.values(batch.inserted).reduce((sum, value) => sum + value, 0)} candle(s).</p>}
+      <table>
+        <thead>
+          <tr><th>Symbol</th><th>Timeframe</th><th>Candles</th><th>Coverage</th><th>Status</th><th>Last Candle</th></tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={`${item.symbol}-${item.timeframe}`}>
+              <td className="font-semibold">{item.symbol}</td>
+              <td>{item.timeframe}</td>
+              <td>{item.candles.toLocaleString()}</td>
+              <td>{fmt(item.coverage_percent)}%</td>
+              <td><span className={`pill ${item.ready ? "buy" : ""}`}>{item.ready ? "Ready" : "Building"}</span></td>
+              <td>{item.last_timestamp ? new Date(item.last_timestamp).toLocaleString() : "-"}</td>
+            </tr>
+          ))}
+          {!items.length && <EmptyRow cols={6} text="No dataset readiness data" />}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

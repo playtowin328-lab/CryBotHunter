@@ -192,6 +192,21 @@ class HistoryIngestOut(BaseModel):
     inserted: int
 
 
+class HistoryBatchIngestOut(BaseModel):
+    inserted: dict[str, int]
+
+
+class HistoryReadinessOut(BaseModel):
+    symbol: str
+    timeframe: str
+    candles: int
+    target: int
+    coverage_percent: float
+    ready: bool
+    first_timestamp: datetime | None = None
+    last_timestamp: datetime | None = None
+
+
 class StrategyOptimizationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

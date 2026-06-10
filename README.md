@@ -27,7 +27,7 @@ Open:
 
 ## Deploy to Railway
 
-Create one Railway project with four services:
+Create one Railway project with these services:
 
 - PostgreSQL database
 - Redis database
@@ -35,6 +35,7 @@ Create one Railway project with four services:
 - `frontend` service from this GitHub repository with root directory `frontend`
 - `telegram-bot` worker service from this GitHub repository with root directory `backend`
 - `trader-worker` worker service from this GitHub repository with root directory `backend`
+- `candle-worker` worker service from this GitHub repository with root directory `backend`
 
 Backend variables:
 
@@ -61,6 +62,11 @@ AI_COMMITTEE_ENABLED=true
 AI_COMMITTEE_MIN_CONSENSUS=0.66
 MAX_GROSS_EXPOSURE_PERCENT=300
 MAX_SYMBOL_EXPOSURE_PERCENT=100
+CANDLE_INGEST_SYMBOLS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT
+CANDLE_INGEST_TIMEFRAMES=1h
+CANDLE_INGEST_LIMIT=500
+CANDLE_INGEST_LOOP_SECONDS=300
+CANDLE_DATASET_TARGET=100000
 ```
 
 Frontend variables:
@@ -106,9 +112,27 @@ MAX_GROSS_EXPOSURE_PERCENT=300
 MAX_SYMBOL_EXPOSURE_PERCENT=100
 ```
 
+Candle worker variables:
+
+```env
+APP_PROCESS=candles
+ENVIRONMENT=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=the-same-secret-as-backend
+ENCRYPTION_KEY=the-same-fernet-key-as-backend
+PAPER_TRADING=true
+MARKET_DATA_MODE=ccxt
+CANDLE_INGEST_SYMBOLS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT
+CANDLE_INGEST_TIMEFRAMES=1h,15m
+CANDLE_INGEST_LIMIT=500
+CANDLE_INGEST_LOOP_SECONDS=300
+CANDLE_DATASET_TARGET=100000
+```
+
 Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
-Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for backtesting and future ML datasets.
+Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for one symbol, `POST /api/v1/market/history/ingest/batch` for configured symbols, and `GET /api/v1/market/history/readiness` to inspect dataset coverage for backtesting and future ML datasets.
 
 Use `POST /api/v1/strategy-lab/optimize` to run a parameter grid search against stored candles and save the strongest strategy configurations. Use `GET /api/v1/strategy-lab/results` to show the latest optimizer results in the dashboard.
 

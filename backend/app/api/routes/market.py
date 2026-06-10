@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import current_user
 from app.db.session import get_db
 from app.models.entities import User
-from app.schemas.dto import HistoryIngestOut, MarketCoin, MlPrediction, StrategySignal
+from app.core.config import get_settings
+from app.schemas.dto import HistoryBatchIngestOut, HistoryIngestOut, HistoryReadinessOut, MarketCoin, MlPrediction, StrategySignal
 from app.services.history import HistoricalDataService
 from app.services.market_scanner import MarketScanner
 from app.services.ml import MlSignalService
@@ -42,3 +43,33 @@ async def ingest_history(
 ) -> HistoryIngestOut:
     inserted = await HistoricalDataService().ingest(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
     return HistoryIngestOut(symbol=symbol, timeframe=timeframe, inserted=inserted)
+
+
+@router.post("/history/ingest/batch", response_model=HistoryBatchIngestOut)
+async def ingest_history_batch(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HistoryBatchIngestOut:
+    settings = get_settings()
+    inserted = await HistoricalDataService().ingest_many(
+        db,
+        symbols=settings.candle_ingest_symbols,
+        timeframes=settings.candle_ingest_timeframes,
+        limit=min(settings.candle_ingest_limit, 1000),
+    )
+    return HistoryBatchIngestOut(inserted=inserted)
+
+
+@router.get("/history/readiness", response_model=list[HistoryReadinessOut])
+async def history_readiness(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[HistoryReadinessOut]:
+    settings = get_settings()
+    rows = await HistoricalDataService().readiness(
+        db,
+        symbols=settings.candle_ingest_symbols,
+        timeframes=settings.candle_ingest_timeframes,
+        target=settings.candle_dataset_target,
+    )
+    return [HistoryReadinessOut(**row) for row in rows]

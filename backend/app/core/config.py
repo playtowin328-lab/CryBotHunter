@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
+    candle_ingest_symbols: list[str] = Field(default_factory=lambda: ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"])
+    candle_ingest_timeframes: list[str] = Field(default_factory=lambda: ["1h"])
+    candle_ingest_limit: int = 500
+    candle_ingest_loop_seconds: int = 300
+    candle_dataset_target: int = 100_000
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -64,6 +69,13 @@ class Settings(BaseSettings):
             return []
         if isinstance(value, str):
             return [int(item.strip()) for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("candle_ingest_symbols", "candle_ingest_timeframes", mode="before")
+    @classmethod
+    def parse_csv_list(cls, value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
 

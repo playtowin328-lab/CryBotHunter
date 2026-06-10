@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from random import Random
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,14 @@ from app.services.exchange import ExchangeClient
 
 
 class HistoricalDataService:
+    async def ingest_many(self, db: AsyncSession, symbols: list[str], timeframes: list[str], limit: int = 500) -> dict[str, int]:
+        inserted: dict[str, int] = {}
+        for symbol in symbols:
+            for timeframe in timeframes:
+                key = f"{symbol}:{timeframe}"
+                inserted[key] = await self.ingest(db, symbol=symbol, timeframe=timeframe, limit=limit)
+        return inserted
+
     async def ingest(self, db: AsyncSession, symbol: str, timeframe: str = "1h", limit: int = 500) -> int:
         candles = await self._fetch(symbol, timeframe, limit)
         if not candles:
@@ -45,6 +53,33 @@ class HistoricalDataService:
             .limit(limit)
         )
         return list(reversed(result.scalars().all()))
+
+    async def readiness(self, db: AsyncSession, symbols: list[str], timeframes: list[str], target: int = 100_000) -> list[dict]:
+        rows: list[dict] = []
+        for symbol in symbols:
+            for timeframe in timeframes:
+                result = await db.execute(
+                    select(
+                        func.count(Candle.id),
+                        func.min(Candle.timestamp),
+                        func.max(Candle.timestamp),
+                    ).where(Candle.symbol == symbol, Candle.timeframe == timeframe)
+                )
+                count, first_timestamp, last_timestamp = result.one()
+                coverage = round(min(int(count or 0) / max(target, 1) * 100, 100), 2)
+                rows.append(
+                    {
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "candles": int(count or 0),
+                        "target": target,
+                        "coverage_percent": coverage,
+                        "ready": int(count or 0) >= target,
+                        "first_timestamp": first_timestamp,
+                        "last_timestamp": last_timestamp,
+                    }
+                )
+        return rows
 
     async def _fetch(self, symbol: str, timeframe: str, limit: int) -> list[dict]:
         if get_settings().market_data_mode.lower() == "ccxt":
