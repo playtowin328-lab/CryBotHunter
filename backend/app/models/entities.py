@@ -90,17 +90,22 @@ class Position(Base):
     entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    trades: Mapped[list["Trade"]] = relationship(back_populates="position")
+
 
 class Trade(Base):
     __tablename__ = "trades"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    position_id: Mapped[int | None] = mapped_column(ForeignKey("positions.id"), index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     side: Mapped[str] = mapped_column(String(8))
     entry_price: Mapped[float] = mapped_column(Float)
     exit_price: Mapped[float | None] = mapped_column(Float)
     profit: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    position: Mapped[Position | None] = relationship(back_populates="trades")
 
 
 class Order(Base):

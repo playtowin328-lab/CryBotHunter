@@ -189,7 +189,8 @@ class TradingEngine:
             lowest_price=entry_price,
         )
         db.add(position)
-        db.add(Trade(symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
+        await db.flush()
+        db.add(Trade(position_id=position.id, symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
 
     def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
@@ -268,6 +269,7 @@ class TradingEngine:
         position.pnl = self._pnl(position, price)
         db.add(
             Trade(
+                position_id=position.id,
                 symbol=position.symbol,
                 side=position.side,
                 entry_price=position.entry_price,
@@ -317,10 +319,18 @@ class TradingEngine:
         trade = (
             await db.execute(
                 select(Trade)
-                .where(Trade.symbol == position.symbol, Trade.exit_price.is_(None))
+                .where(Trade.position_id == position.id, Trade.exit_price.is_(None))
                 .order_by(Trade.created_at.desc())
             )
         ).scalars().first()
+        if not trade:
+            trade = (
+                await db.execute(
+                    select(Trade)
+                    .where(Trade.symbol == position.symbol, Trade.exit_price.is_(None))
+                    .order_by(Trade.created_at.desc())
+                )
+            ).scalars().first()
         if trade:
             trade.exit_price = exit_order.average_price
             trade.profit = position.pnl - exit_order.fee

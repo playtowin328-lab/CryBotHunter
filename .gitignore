@@ -6,5 +6,9 @@ __pycache__/
 .ruff_cache/
 .venv/
 node_modules/
+.pnpm-store/
 dist/
 postgres_data/
+.idea/
+outputs/
+work/
