@@ -3,8 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
 from app.db.session import get_db
-from app.models.entities import User
-from app.schemas.dto import StrategyOptimizationOut
+from sqlalchemy import select
+
+from app.models.entities import LearningRule, User
+from app.schemas.dto import LearningRuleOut, StrategyOptimizationOut
 from app.services.optimizer import StrategyOptimizerService
 
 router = APIRouter(prefix="/strategy-lab", tags=["strategy-lab"])
@@ -26,3 +28,14 @@ async def optimize(
 async def results(_: User = Depends(current_user), db: AsyncSession = Depends(get_db), limit: int = 20) -> list[StrategyOptimizationOut]:
     bounded_limit = max(1, min(limit, 100))
     return await StrategyOptimizerService().recent(db, limit=bounded_limit)
+
+
+@router.get("/learning-rules", response_model=list[LearningRuleOut])
+async def learning_rules(_: User = Depends(current_user), db: AsyncSession = Depends(get_db), limit: int = 50) -> list[LearningRule]:
+    bounded_limit = max(1, min(limit, 200))
+    result = await db.execute(
+        select(LearningRule)
+        .order_by(LearningRule.penalty.desc(), LearningRule.updated_at.desc())
+        .limit(bounded_limit)
+    )
+    return list(result.scalars().all())

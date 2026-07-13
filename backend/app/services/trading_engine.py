@@ -9,6 +9,7 @@ from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, Tra
 from app.services.agents import AgentOrchestrator
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
+from app.services.learning import LearningService
 from app.services.market_scanner import MarketScanner
 from app.services.performance_guard import PerformanceGuardService
 from app.services.risk_manager import RiskManager, RiskSettings
@@ -25,6 +26,7 @@ class TradingEngine:
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
         self.agents = AgentOrchestrator()
+        self.learning = LearningService()
         self.telegram = TelegramNotifier()
         self.settings = get_settings()
 
@@ -60,6 +62,13 @@ class TradingEngine:
             else:
                 accepted, reason = self.risk.can_open(signal, settings, open_count, daily_pnl)
             if accepted:
+                learning = await self.learning.assess_entry(db, coin, signal.signal)
+                if not learning.allowed:
+                    accepted = False
+                    reason = learning.reason
+                elif learning.penalty > 0:
+                    reason = f"{reason}; {learning.reason}"
+            if accepted:
                 accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, settings, exposure)
             else:
                 candidate_notional = 0.0
@@ -72,7 +81,7 @@ class TradingEngine:
                         f"consensus={committee.consensus_score:.2f}, confidence={committee.final_confidence:.2f}"
                     )
             if accepted:
-                position = await self._open_position(db, coin, signal.signal, balance, settings)
+                position = await self._open_position(db, coin, signal.signal, signal.reasons, balance, settings)
                 if position:
                     open_count += 1
                     open_symbols.add(coin.symbol)
@@ -151,7 +160,15 @@ class TradingEngine:
         closed = sum(1 for item in updates if item.status == "CLOSED")
         return TradingTickOut(checked=len(positions), closed=closed, updated=updates)
 
-    async def _open_position(self, db: AsyncSession, coin: MarketCoin, signal: str, balance: float, settings: RiskSettings) -> Position | None:
+    async def _open_position(
+        self,
+        db: AsyncSession,
+        coin: MarketCoin,
+        signal: str,
+        signal_reasons: list[str],
+        balance: float,
+        settings: RiskSettings,
+    ) -> Position | None:
         side = "LONG" if signal == "BUY" else "SHORT"
         stop, take, initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
         volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
@@ -187,6 +204,7 @@ class TradingEngine:
             trailing_stop_percent=settings.trailing_stop_percent,
             highest_price=entry_price,
             lowest_price=entry_price,
+            entry_context=self.learning.entry_context(coin, signal, signal_reasons),
         )
         db.add(position)
         await db.flush()
@@ -335,7 +353,9 @@ class TradingEngine:
             trade.exit_price = exit_order.average_price
             trade.profit = position.pnl - exit_order.fee
             position.pnl = trade.profit
+        await self.learning.record_closed_position(db, position, position.pnl, reason)
         db.add(LogEntry(level="INFO", message=f"Closed {position.symbol} #{position.id}: {reason}, pnl={position.pnl:.2f}"))
+        db.add(LogEntry(level="INFO", message=f"Learning updated from {position.symbol} #{position.id}: reason={reason}, pnl={position.pnl:.2f}"))
         await self.telegram.broadcast(
             f"Position closed\n"
             f"{position.side} {position.symbol}\n"

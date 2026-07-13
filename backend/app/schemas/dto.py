@@ -223,6 +223,23 @@ class StrategyOptimizationOut(BaseModel):
     created_at: datetime | None = None
 
 
+class LearningRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    scope: str
+    side: str
+    feature_key: str
+    feature_value: str
+    penalty: float
+    observations: int
+    wins: int
+    losses: int
+    total_profit: float
+    last_reason: str | None = None
+    updated_at: datetime | None = None
+
+
 class ActionMessage(BaseModel):
     ok: bool
     message: str

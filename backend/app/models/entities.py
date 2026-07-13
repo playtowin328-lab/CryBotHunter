@@ -85,6 +85,7 @@ class Position(Base):
     highest_price: Mapped[float] = mapped_column(Float, default=0.0)
     lowest_price: Mapped[float] = mapped_column(Float, default=0.0)
     pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    entry_context: Mapped[dict] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(16), default=PositionStatus.OPEN.value)
     exit_reason: Mapped[str | None] = mapped_column(String(32))
     entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -181,6 +182,25 @@ class StrategyOptimization(Base):
     total_profit: Mapped[float] = mapped_column(Float, default=0.0)
     trades_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LearningRule(Base):
+    __tablename__ = "learning_rules"
+    __table_args__ = (UniqueConstraint("scope", "side", "feature_key", "feature_value", name="uq_learning_rule"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(32), index=True, default="GLOBAL")
+    side: Mapped[str] = mapped_column(String(8), index=True)
+    feature_key: Mapped[str] = mapped_column(String(64), index=True)
+    feature_value: Mapped[str] = mapped_column(String(128), index=True)
+    penalty: Mapped[float] = mapped_column(Float, default=0.0)
+    observations: Mapped[int] = mapped_column(Integer, default=0)
+    wins: Mapped[int] = mapped_column(Integer, default=0)
+    losses: Mapped[int] = mapped_column(Integer, default=0)
+    total_profit: Mapped[float] = mapped_column(Float, default=0.0)
+    last_reason: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class LogEntry(Base):
