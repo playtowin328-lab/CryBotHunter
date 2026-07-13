@@ -208,3 +208,34 @@ def test_partial_take_profit_reaches_trigger_and_sizes_close():
     assert engine._partial_take_profit_reached(position, 104)
     assert engine._partial_close_volume(position) == 1
     assert engine._profit_for_volume(position, 104, 1) == 4
+
+
+def test_total_closed_profit_includes_partial_profit_and_entry_fee():
+    position = Position(
+        symbol="BTC/USDT",
+        side="LONG",
+        entry_price=100,
+        current_price=106,
+        volume=1,
+        stop=96,
+        take=110,
+        initial_risk=4,
+        partial_take_profit_r=1,
+        partial_close_percent=50,
+        partial_taken=True,
+        trailing_stop_percent=0.8,
+        highest_price=106,
+        lowest_price=100,
+    )
+    engine = TradingEngine()
+
+    final_trade_profit = engine._final_trade_profit(
+        existing_trade_profit=-0.08,
+        position=position,
+        exit_price=106,
+        exit_fee=0.06,
+    )
+    total_profit = engine._total_closed_profit(previous_realized=3.95, final_trade_profit=final_trade_profit)
+
+    assert final_trade_profit == 5.86
+    assert total_profit == 9.81

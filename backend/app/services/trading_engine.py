@@ -170,7 +170,7 @@ class TradingEngine:
             if self._apply_breakeven(position):
                 db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
             self._apply_trailing_stop(position)
-            position.pnl = self._pnl(position, coin.price)
+            position.pnl = await self._position_total_pnl(db, position, coin.price)
             exit_reason = self._exit_reason(position)
             if exit_reason:
                 await self._close_position(db, position, coin.price, exit_reason)
@@ -318,7 +318,6 @@ class TradingEngine:
         partial_profit = self._profit_for_volume(position, exit_order.average_price, close_volume) - exit_order.fee
         position.volume = round(position.volume - close_volume, 8)
         position.partial_taken = True
-        position.pnl = self._pnl(position, price)
         db.add(
             Trade(
                 position_id=position.id,
@@ -329,6 +328,7 @@ class TradingEngine:
                 profit=round(partial_profit, 4),
             )
         )
+        position.pnl = await self._position_total_pnl(db, position, price)
         await self.telegram.broadcast(
             f"Partial take profit\n"
             f"{position.side} {position.symbol}\n"
@@ -367,7 +367,6 @@ class TradingEngine:
         position.exit_reason = reason
         position.closed_at = datetime.now(timezone.utc)
         position.current_price = exit_order.average_price
-        position.pnl = self._pnl(position, exit_order.average_price)
         trade = (
             await db.execute(
                 select(Trade)
@@ -381,12 +380,30 @@ class TradingEngine:
                     select(Trade)
                     .where(Trade.symbol == position.symbol, Trade.exit_price.is_(None))
                     .order_by(Trade.created_at.desc())
-                )
-            ).scalars().first()
+            )
+        ).scalars().first()
+        previous_realized = await self._position_profit_sum(db, position.id, exclude_trade_id=trade.id if trade else None)
+        final_trade_profit = self._final_trade_profit(
+            existing_trade_profit=float(trade.profit or 0.0) if trade else 0.0,
+            position=position,
+            exit_price=exit_order.average_price,
+            exit_fee=exit_order.fee,
+        )
         if trade:
             trade.exit_price = exit_order.average_price
-            trade.profit = position.pnl - exit_order.fee
-            position.pnl = trade.profit
+            trade.profit = final_trade_profit
+        else:
+            db.add(
+                Trade(
+                    position_id=position.id,
+                    symbol=position.symbol,
+                    side=position.side,
+                    entry_price=position.entry_price,
+                    exit_price=exit_order.average_price,
+                    profit=final_trade_profit,
+                )
+            )
+        position.pnl = self._total_closed_profit(previous_realized, final_trade_profit)
         await self.learning.record_closed_position(db, position, position.pnl, reason)
         db.add(LogEntry(level="INFO", message=f"Closed {position.symbol} #{position.id}: {reason}, pnl={position.pnl:.2f}"))
         db.add(LogEntry(level="INFO", message=f"Learning updated from {position.symbol} #{position.id}: reason={reason}, pnl={position.pnl:.2f}"))
@@ -446,6 +463,27 @@ class TradingEngine:
     def _profit_for_volume(self, position: Position, price: float, volume: float) -> float:
         multiplier = 1 if position.side == "LONG" else -1
         return round((price - position.entry_price) * volume * multiplier, 4)
+
+    def _final_trade_profit(self, existing_trade_profit: float, position: Position, exit_price: float, exit_fee: float) -> float:
+        remaining_profit = self._profit_for_volume(position, exit_price, position.volume)
+        return round(existing_trade_profit + remaining_profit - exit_fee, 4)
+
+    def _total_closed_profit(self, previous_realized: float, final_trade_profit: float) -> float:
+        return round(previous_realized + final_trade_profit, 4)
+
+    async def _position_profit_sum(self, db: AsyncSession, position_id: int | None, exclude_trade_id: int | None = None) -> float:
+        if position_id is None:
+            return 0.0
+        query = select(func.coalesce(func.sum(Trade.profit), 0.0)).where(Trade.position_id == position_id)
+        if exclude_trade_id is not None:
+            query = query.where(Trade.id != exclude_trade_id)
+        result = await db.execute(query)
+        return float(result.scalar_one())
+
+    async def _position_total_pnl(self, db: AsyncSession, position: Position, price: float) -> float:
+        realized_profit = await self._position_profit_sum(db, position.id)
+        unrealized_profit = self._pnl(position, price)
+        return round(realized_profit + unrealized_profit, 4)
 
     async def _open_positions_count(self, db: AsyncSession) -> int:
         result = await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
