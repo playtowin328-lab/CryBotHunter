@@ -1,7 +1,6 @@
 from functools import lru_cache
-from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +19,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     encryption_key: str = Field(default="P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=")
 
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:8080"]
+    cors_origins_raw: str = Field(default="http://localhost:5173,http://localhost:8080", validation_alias="CORS_ORIGINS")
     default_exchange: str = "binance"
     paper_trading: bool = True
     live_trading_enabled: bool = False
@@ -34,7 +33,7 @@ class Settings(BaseSettings):
     exchange_passphrase: str | None = None
     log_retention_days: int = 90
     telegram_bot_token: str | None = None
-    telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
+    telegram_allowed_chat_ids_raw: str = Field(default="", validation_alias="TELEGRAM_ALLOWED_CHAT_IDS")
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None
@@ -49,39 +48,36 @@ class Settings(BaseSettings):
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
-    candle_ingest_symbols: list[str] = Field(default_factory=lambda: ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"])
-    candle_ingest_timeframes: list[str] = Field(default_factory=lambda: ["1h"])
+    candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
+    candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500
     candle_ingest_loop_seconds: int = 300
     candle_dataset_target: int = 100_000
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, value: Any) -> list[str]:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def cors_origins(self) -> list[str]:
+        return _parse_csv(self.cors_origins_raw)
 
-    @field_validator("telegram_allowed_chat_ids", mode="before")
-    @classmethod
-    def parse_telegram_chat_ids(cls, value: Any) -> list[int]:
-        if value in (None, ""):
-            return []
-        if isinstance(value, str):
-            return [int(item.strip()) for item in value.split(",") if item.strip()]
-        return value
+    @property
+    def telegram_allowed_chat_ids(self) -> list[int]:
+        return [int(item) for item in _parse_csv(self.telegram_allowed_chat_ids_raw)]
 
-    @field_validator("candle_ingest_symbols", "candle_ingest_timeframes", mode="before")
-    @classmethod
-    def parse_csv_list(cls, value: Any) -> list[str]:
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+    @property
+    def candle_ingest_symbols(self) -> list[str]:
+        return _parse_csv(self.candle_ingest_symbols_raw)
+
+    @property
+    def candle_ingest_timeframes(self) -> list[str]:
+        return _parse_csv(self.candle_ingest_timeframes_raw)
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def _parse_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def async_database_url(url: str) -> str:
