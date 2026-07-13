@@ -12,6 +12,7 @@ from app.services.execution import ExecutionService
 from app.services.learning import LearningService
 from app.services.market_scanner import MarketScanner
 from app.services.performance_guard import PerformanceGuardService
+from app.services.pretrade_quality import PreTradeQualityGate
 from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.strategy import StrategyCore
 from app.services.telegram_bot import TelegramNotifier
@@ -25,12 +26,13 @@ class TradingEngine:
         self.risk = RiskManager()
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
+        self.quality_gate = PreTradeQualityGate()
         self.agents = AgentOrchestrator()
         self.learning = LearningService()
         self.telegram = TelegramNotifier()
         self.settings = get_settings()
 
-    async def run_once(self, db: AsyncSession, settings: RiskSettings) -> TradingRunOut:
+    async def run_once(self, db: AsyncSession, settings: RiskSettings, timeframe: str = "1h") -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
         coins = await self.scanner.scan()
         guard = await self.guard.evaluate(db)
@@ -72,6 +74,13 @@ class TradingEngine:
                 accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, settings, exposure)
             else:
                 candidate_notional = 0.0
+            if accepted:
+                quality = await self.quality_gate.assess(db, coin.symbol, timeframe, settings)
+                if not quality.allowed:
+                    accepted = False
+                    reason = quality.reason
+                elif "warning" in quality.reason:
+                    reason = f"{reason}; {quality.reason}"
             if accepted:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
@@ -185,6 +194,7 @@ class TradingEngine:
         if entry_order.status != OrderStatus.FILLED.value or not entry_order.average_price:
             return None
         entry_price = entry_order.average_price
+        volume = entry_order.filled_amount or entry_order.requested_amount
         stop, take, initial_risk = self._exit_plan(entry_price, coin.atr, side, settings)
         position = Position(
             symbol=coin.symbol,

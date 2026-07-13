@@ -45,7 +45,7 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         if not acquired:
             return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
         exchange = ExchangeClient.from_user_settings(user_settings)
-        return await TradingEngine(exchange).run_once(db, risk_settings)
+        return await TradingEngine(exchange).run_once(db, risk_settings, timeframe=user_settings.scan_interval)
 
 
 @router.post("/tick", response_model=TradingTickOut)

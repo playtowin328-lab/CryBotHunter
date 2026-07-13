@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
+    pretrade_quality_enabled: bool = True
+    pretrade_quality_min_candles: int = 420
+    pretrade_quality_min_profit_factor: float = 1.1
+    pretrade_quality_min_win_rate: float = 42.0
+    pretrade_quality_min_profitable_windows_percent: float = 50.0
+    pretrade_quality_min_trades: int = 3
     candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500
