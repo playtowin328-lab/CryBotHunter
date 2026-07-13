@@ -462,22 +462,24 @@ function LearningRulesTable({ items }: { items: LearningRule[] }) {
       <div className="table-title">Память бота об ошибках</div>
       <table>
         <thead>
-          <tr><th>Scope</th><th>Сторона</th><th>Признак</th><th>Значение</th><th>Penalty</th><th>W/L</th><th>Итог</th><th>Причина</th></tr>
+          <tr><th>Риск</th><th>Scope</th><th>Сторона</th><th>Признак</th><th>Значение</th><th>Penalty</th><th>Уверенность</th><th>W/L</th><th>Итог</th><th>Причина</th></tr>
         </thead>
         <tbody>
           {items.map((item) => (
             <tr key={item.id}>
+              <td><span className={`pill ${item.risk_level === "BLOCK" ? "sell" : item.risk_level === "WARN" ? "" : "buy"}`}>{translateRiskLevel(item.risk_level)}</span></td>
               <td>{item.scope}</td>
               <td>{translateAction(item.side)}</td>
               <td>{translateFeature(item.feature_key)}</td>
               <td>{translateFeatureValue(item.feature_value)}</td>
               <td className={item.penalty >= 2.5 ? "text-danger" : item.penalty > 0 ? "text-slate-700" : "text-accent"}>{fmt(item.penalty)}</td>
+              <td>{fmt(item.confidence * 100)}%</td>
               <td>{item.wins}/{item.losses}</td>
               <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
               <td>{translateStatus(item.last_reason ?? "-")}</td>
             </tr>
           ))}
-          {!items.length && <EmptyRow cols={8} text="Бот пока не накопил правил обучения. Они появятся после закрытых сделок." />}
+          {!items.length && <EmptyRow cols={10} text="Бот пока не накопил правил обучения. Они появятся после закрытых сделок." />}
         </tbody>
       </table>
     </div>
@@ -892,6 +894,15 @@ function translateFeature(value: string) {
     macd_direction: "MACD",
     rating_bucket: "Рейтинг",
     exit_reason: "Причина выхода"
+  };
+  return labels[value] ?? value;
+}
+
+function translateRiskLevel(value: string) {
+  const labels: Record<string, string> = {
+    WATCH: "Наблюдать",
+    WARN: "Риск",
+    BLOCK: "Блок"
   };
   return labels[value] ?? value;
 }

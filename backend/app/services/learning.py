@@ -21,6 +21,7 @@ class LearningService:
     block_threshold = 2.5
     warn_threshold = 1.25
     max_penalty = 5.0
+    min_observations_for_block = 2
 
     def entry_context(self, coin: MarketCoin, signal: str, reasons: list[str]) -> dict[str, Any]:
         atr_percent = self._atr_percent(float(coin.atr), float(coin.price))
@@ -51,8 +52,10 @@ class LearningService:
             for rule in rules:
                 if rule.penalty > 0:
                     weight = 1.0 if scope == "GLOBAL" else 1.25
-                    total_penalty += rule.penalty * weight
-                    matched.append(f"{rule.feature_key}={rule.feature_value}:{rule.penalty:.2f}")
+                    confidence = self.rule_confidence(rule.observations)
+                    effective_penalty = rule.penalty * weight * confidence
+                    total_penalty += effective_penalty
+                    matched.append(f"{rule.feature_key}={rule.feature_value}:{effective_penalty:.2f}")
         if total_penalty >= self.block_threshold:
             return LearningAssessment(False, round(total_penalty, 2), f"learning guard blocked similar losing setup ({', '.join(matched[:4])})")
         if total_penalty >= self.warn_threshold:
@@ -135,6 +138,19 @@ class LearningService:
         if profit < 0:
             return min(1.0, 0.35 + abs(profit) / 25)
         return -min(0.5, 0.15 + profit / 50)
+
+    def rule_confidence(self, observations: int) -> float:
+        if observations <= 0:
+            return 0.0
+        return min(1.0, observations / self.min_observations_for_block)
+
+    def risk_level(self, penalty: float, observations: int) -> str:
+        effective = penalty * self.rule_confidence(observations)
+        if effective >= self.block_threshold:
+            return "BLOCK"
+        if effective >= self.warn_threshold:
+            return "WARN"
+        return "WATCH"
 
     def _features_from_context(self, context: dict[str, Any]) -> list[tuple[str, str]]:
         feature_keys = [

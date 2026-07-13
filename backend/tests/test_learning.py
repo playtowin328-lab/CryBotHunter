@@ -47,3 +47,18 @@ def test_learning_service_has_bounded_penalty_policy():
 
     assert service.max_penalty == 5.0
     assert service.block_threshold > service.warn_threshold
+
+
+def test_learning_confidence_requires_multiple_observations():
+    service = LearningService()
+
+    assert service.rule_confidence(0) == 0
+    assert service.rule_confidence(1) == 0.5
+    assert service.rule_confidence(2) == 1.0
+
+
+def test_learning_risk_level_uses_effective_penalty():
+    service = LearningService()
+
+    assert service.risk_level(3.0, 1) == "WARN"
+    assert service.risk_level(3.0, 2) == "BLOCK"

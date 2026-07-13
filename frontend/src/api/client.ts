@@ -200,6 +200,8 @@ export type LearningRule = {
   wins: number;
   losses: number;
   total_profit: number;
+  confidence: number;
+  risk_level: "WATCH" | "WARN" | "BLOCK";
   last_reason?: string | null;
   updated_at?: string | null;
 };

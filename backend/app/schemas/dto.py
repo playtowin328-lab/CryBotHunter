@@ -236,6 +236,8 @@ class LearningRuleOut(BaseModel):
     wins: int
     losses: int
     total_profit: float
+    confidence: float = 0
+    risk_level: str = "WATCH"
     last_reason: str | None = None
     updated_at: datetime | None = None
 
