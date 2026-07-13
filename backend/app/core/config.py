@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     pretrade_quality_min_win_rate: float = 42.0
     pretrade_quality_min_profitable_windows_percent: float = 50.0
     pretrade_quality_min_trades: int = 3
+    pretrade_quality_min_risk_multiplier: float = 0.35
     candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500

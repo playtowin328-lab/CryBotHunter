@@ -47,13 +47,16 @@ class ExecutionService:
             if self.settings.paper_trading:
                 self._fill_paper(order, reference_price, prepared_order)
             else:
+                reduce_only = reason.startswith("EXIT") or reason == "PARTIAL_TAKE_PROFIT"
+                if not reduce_only:
+                    await self._assert_quote_balance(prepared_order.amount, reference_price)
                 raw = await self.exchange.create_order(
                     symbol,
                     side,
                     prepared_order.amount,
                     "market",
                     client_order_id=self._client_order_id(order.id, reason),
-                    reduce_only=reason.startswith("EXIT") or reason == "PARTIAL_TAKE_PROFIT",
+                    reduce_only=reduce_only,
                 )
                 order.exchange_order_id = str(raw.get("id") or "")
                 order.status = OrderStatus.FILLED.value
@@ -88,3 +91,10 @@ class ExecutionService:
     def _client_order_id(self, order_id: int, reason: str) -> str:
         safe_reason = "".join(char for char in reason.lower() if char.isalnum() or char == "_")[:24]
         return f"cbh-{order_id}-{safe_reason}"
+
+    async def _assert_quote_balance(self, amount: float, reference_price: float) -> None:
+        free_balance = await self.exchange.get_free_balance()
+        free_usdt = float(free_balance.get("USDT") or 0.0)
+        notional = abs(amount * reference_price)
+        if notional > free_usdt * 0.98:
+            raise RuntimeError(f"Insufficient free USDT balance for order notional: {notional:.4f} > {free_usdt:.4f}")

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -58,6 +59,7 @@ class TradingEngine:
             signal = self.strategy.evaluate(coin)
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
+            trade_settings = settings
 
             if coin.symbol in open_symbols:
                 accepted, reason = False, "position already open for symbol"
@@ -71,16 +73,19 @@ class TradingEngine:
                 elif learning.penalty > 0:
                     reason = f"{reason}; {learning.reason}"
             if accepted:
-                accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, settings, exposure)
-            else:
-                candidate_notional = 0.0
-            if accepted:
                 quality = await self.quality_gate.assess(db, coin.symbol, timeframe, settings)
                 if not quality.allowed:
                     accepted = False
                     reason = quality.reason
+                elif quality.risk_multiplier < 1:
+                    trade_settings = replace(settings, risk_percent=round(settings.risk_percent * quality.risk_multiplier, 4))
+                    reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"
+            if accepted:
+                accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, trade_settings, exposure)
+            else:
+                candidate_notional = 0.0
             if accepted:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
@@ -90,7 +95,7 @@ class TradingEngine:
                         f"consensus={committee.consensus_score:.2f}, confidence={committee.final_confidence:.2f}"
                     )
             if accepted:
-                position = await self._open_position(db, coin, signal.signal, signal.reasons, balance, settings)
+                position = await self._open_position(db, coin, signal.signal, signal.reasons, balance, trade_settings)
                 if position:
                     open_count += 1
                     open_symbols.add(coin.symbol)

@@ -66,6 +66,23 @@ def test_pretrade_quality_blocks_weak_walk_forward():
     assert decision.allowed is False
     assert "pre-trade quality blocked" in decision.reason
     assert decision.profitable_windows_percent == 0
+    assert decision.risk_multiplier == 0.0
+
+
+def test_pretrade_quality_reduces_risk_for_borderline_walk_forward():
+    gate = PreTradeQualityGate()
+    borderline_report = report(
+        windows=[window(test_profit=2.0, test_win_rate=40.0, test_profit_factor=1.0, test_trades_count=4)],
+        total_profit=2.0,
+        average_win_rate=40.0,
+        average_profit_factor=1.0,
+    )
+
+    decision = gate._decision(borderline_report, candles_checked=500, risk_settings=risk_settings())
+
+    assert decision.allowed is True
+    assert "reduced risk" in decision.reason
+    assert 0 < decision.risk_multiplier < 1
 
 
 def test_pretrade_quality_allows_stable_walk_forward():
@@ -77,3 +94,4 @@ def test_pretrade_quality_allows_stable_walk_forward():
     assert decision.allowed is True
     assert decision.reason == "pre-trade quality passed"
     assert decision.profitable_windows_percent == 100.0
+    assert decision.risk_multiplier == 1.0

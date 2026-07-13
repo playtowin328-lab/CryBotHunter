@@ -14,6 +14,7 @@ class PreTradeQualityAssessment:
     allowed: bool
     reason: str
     candles_checked: int
+    risk_multiplier: float = 1.0
     window_count: int = 0
     profitable_windows_percent: float = 0.0
     average_win_rate: float = 0.0
@@ -48,6 +49,7 @@ class PreTradeQualityGate:
                 True,
                 f"pre-trade quality warning: only {len(candles)} {used_timeframe} candles available, need {self.settings.pretrade_quality_min_candles}",
                 len(candles),
+                risk_multiplier=self.settings.pretrade_quality_min_risk_multiplier,
             )
 
         train_size = max(220, min(360, len(candles) // 2))
@@ -72,34 +74,104 @@ class PreTradeQualityGate:
         risk_settings: RiskSettings,
     ) -> PreTradeQualityAssessment:
         if report.window_count <= 0:
-            return PreTradeQualityAssessment(True, "pre-trade quality warning: not enough walk-forward windows", candles_checked)
+            return PreTradeQualityAssessment(
+                True,
+                "pre-trade quality warning: not enough walk-forward windows",
+                candles_checked,
+                risk_multiplier=self.settings.pretrade_quality_min_risk_multiplier,
+            )
 
         total_test_trades = sum(window.test_trades_count for window in report.windows)
         profitable_windows_percent = report.profitable_windows / report.window_count * 100
-        reasons: list[str] = []
+        hard_reasons: list[str] = []
+        soft_reasons: list[str] = []
+        profit_factor_floor = self.settings.pretrade_quality_min_profit_factor * 0.75
+        win_rate_floor = self.settings.pretrade_quality_min_win_rate * 0.75
+        profitable_windows_floor = self.settings.pretrade_quality_min_profitable_windows_percent * 0.75
         if total_test_trades < self.settings.pretrade_quality_min_trades:
-            reasons.append(f"too few historical trades {total_test_trades} < {self.settings.pretrade_quality_min_trades}")
-        if report.average_profit_factor < self.settings.pretrade_quality_min_profit_factor:
-            reasons.append(f"profit factor {report.average_profit_factor:.2f} < {self.settings.pretrade_quality_min_profit_factor:.2f}")
-        if report.average_win_rate < self.settings.pretrade_quality_min_win_rate:
-            reasons.append(f"win rate {report.average_win_rate:.2f}% < {self.settings.pretrade_quality_min_win_rate:.2f}%")
-        if profitable_windows_percent < self.settings.pretrade_quality_min_profitable_windows_percent:
-            reasons.append(
+            hard_reasons.append(f"too few historical trades {total_test_trades} < {self.settings.pretrade_quality_min_trades}")
+        self._collect_metric_reason(
+            report.average_profit_factor,
+            self.settings.pretrade_quality_min_profit_factor,
+            profit_factor_floor,
+            "profit factor",
+            hard_reasons,
+            soft_reasons,
+        )
+        self._collect_metric_reason(
+            report.average_win_rate,
+            self.settings.pretrade_quality_min_win_rate,
+            win_rate_floor,
+            "win rate",
+            hard_reasons,
+            soft_reasons,
+            suffix="%",
+        )
+        if profitable_windows_percent < profitable_windows_floor:
+            hard_reasons.append(
+                f"profitable windows {profitable_windows_percent:.2f}% < {profitable_windows_floor:.2f}% hard floor"
+            )
+        elif profitable_windows_percent < self.settings.pretrade_quality_min_profitable_windows_percent:
+            soft_reasons.append(
                 f"profitable windows {profitable_windows_percent:.2f}% < "
                 f"{self.settings.pretrade_quality_min_profitable_windows_percent:.2f}%"
             )
         if report.total_profit <= -risk_settings.risk_percent:
-            reasons.append(f"walk-forward total profit {report.total_profit:.2f} is below risk tolerance")
+            hard_reasons.append(f"walk-forward total profit {report.total_profit:.2f} is below risk tolerance")
 
-        allowed = not reasons
-        reason = "pre-trade quality passed" if allowed else f"pre-trade quality blocked: {'; '.join(reasons)}"
+        allowed = not hard_reasons
+        risk_multiplier = 0.0 if hard_reasons else self._risk_multiplier(
+            report.average_profit_factor,
+            report.average_win_rate,
+            profitable_windows_percent,
+            soft_reasons,
+        )
+        if hard_reasons:
+            reason = f"pre-trade quality blocked: {'; '.join(hard_reasons)}"
+        elif soft_reasons:
+            reason = f"pre-trade quality reduced risk to {risk_multiplier:.2f}x: {'; '.join(soft_reasons)}"
+        else:
+            reason = "pre-trade quality passed"
         return PreTradeQualityAssessment(
             allowed=allowed,
             reason=reason,
             candles_checked=candles_checked,
+            risk_multiplier=risk_multiplier,
             window_count=report.window_count,
             profitable_windows_percent=round(profitable_windows_percent, 2),
             average_win_rate=report.average_win_rate,
             average_profit_factor=report.average_profit_factor,
             total_profit=report.total_profit,
         )
+
+    def _collect_metric_reason(
+        self,
+        value: float,
+        target: float,
+        hard_floor: float,
+        label: str,
+        hard_reasons: list[str],
+        soft_reasons: list[str],
+        suffix: str = "",
+    ) -> None:
+        if value < hard_floor:
+            hard_reasons.append(f"{label} {value:.2f}{suffix} < {hard_floor:.2f}{suffix} hard floor")
+        elif value < target:
+            soft_reasons.append(f"{label} {value:.2f}{suffix} < {target:.2f}{suffix}")
+
+    def _risk_multiplier(
+        self,
+        profit_factor: float,
+        win_rate: float,
+        profitable_windows_percent: float,
+        soft_reasons: list[str],
+    ) -> float:
+        if not soft_reasons:
+            return 1.0
+        ratios = [
+            profit_factor / self.settings.pretrade_quality_min_profit_factor,
+            win_rate / self.settings.pretrade_quality_min_win_rate,
+            profitable_windows_percent / self.settings.pretrade_quality_min_profitable_windows_percent,
+        ]
+        multiplier = min(ratios)
+        return round(max(self.settings.pretrade_quality_min_risk_multiplier, min(multiplier, 1.0)), 2)
