@@ -19,6 +19,8 @@ class RiskSettings:
     breakeven_offset_percent: float = 0.05
     partial_take_profit_r: float = 1.0
     partial_close_percent: float = 50.0
+    max_risk_percent_per_trade: float = 2.0
+    min_risk_reward_ratio: float = 1.5
 
 
 class RiskManager:
@@ -35,6 +37,10 @@ class RiskManager:
             return False, "maximum open positions reached"
         if signal.score < settings.min_rating:
             return False, "signal score below minimum rating"
+        if settings.risk_percent > settings.max_risk_percent_per_trade:
+            return False, "risk per trade above safety limit"
+        if settings.risk_reward_ratio < settings.min_risk_reward_ratio:
+            return False, "risk/reward ratio below safety limit"
         daily_loss_limit = -settings.balance * settings.daily_risk_percent / 100
         if daily_pnl <= daily_loss_limit:
             return False, "daily loss limit reached"

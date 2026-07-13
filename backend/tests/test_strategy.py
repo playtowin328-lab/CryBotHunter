@@ -10,7 +10,7 @@ def coin(**overrides):
         "price_change_percent": 4,
         "atr": 3,
         "rsi": 62,
-        "ema20": 105,
+        "ema20": 106,
         "ema50": 100,
         "ema200": 90,
         "macd": 10,
@@ -29,7 +29,7 @@ def test_strategy_returns_buy_when_long_rules_match():
 
 
 def test_strategy_returns_sell_when_short_rules_match():
-    signal = StrategyCore().evaluate(coin(price=80, rsi=35, ema50=90, ema200=110, rating=90))
+    signal = StrategyCore().evaluate(coin(price=80, rsi=35, ema20=85, ema50=90, ema200=110, macd=-10, rating=90))
     assert signal.signal == "SELL"
     assert signal.score >= 90
 
@@ -37,3 +37,15 @@ def test_strategy_returns_sell_when_short_rules_match():
 def test_strategy_waits_when_rating_is_low():
     signal = StrategyCore().evaluate(coin(rating=40))
     assert signal.signal == "WAIT"
+
+
+def test_strategy_blocks_overheated_long_entry():
+    signal = StrategyCore().evaluate(coin(rsi=82))
+    assert signal.signal == "WAIT"
+    assert any("long missing" in reason for reason in signal.reasons)
+
+
+def test_strategy_blocks_extreme_volatility():
+    signal = StrategyCore().evaluate(coin(atr=12))
+    assert signal.signal == "WAIT"
+    assert "volatility too high" in signal.reasons[0]

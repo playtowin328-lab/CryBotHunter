@@ -39,6 +39,28 @@ def test_risk_blocks_daily_loss_limit():
     assert reason == "daily loss limit reached"
 
 
+def test_risk_blocks_oversized_trade_risk():
+    accepted, reason = RiskManager().can_open(
+        StrategySignal(symbol="BTC/USDT", signal="BUY", score=90),
+        settings(risk_percent=3),
+        open_positions_count=0,
+        daily_pnl=0,
+    )
+    assert accepted is False
+    assert reason == "risk per trade above safety limit"
+
+
+def test_risk_blocks_weak_risk_reward():
+    accepted, reason = RiskManager().can_open(
+        StrategySignal(symbol="BTC/USDT", signal="BUY", score=90),
+        settings(risk_reward_ratio=1.2),
+        open_positions_count=0,
+        daily_pnl=0,
+    )
+    assert accepted is False
+    assert reason == "risk/reward ratio below safety limit"
+
+
 def test_position_size_uses_loss_budget():
     size = RiskManager().position_size(balance=1000, risk_percent=1, entry_price=100, stop_price=98)
     assert size == 5
