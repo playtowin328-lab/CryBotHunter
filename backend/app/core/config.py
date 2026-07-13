@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
+    max_same_side_positions: int = 2
+    directional_risk_reduction_start: int = 1
+    directional_risk_multiplier: float = 0.5
     pretrade_quality_enabled: bool = True
     pretrade_quality_min_candles: int = 420
     pretrade_quality_min_profit_factor: float = 1.1

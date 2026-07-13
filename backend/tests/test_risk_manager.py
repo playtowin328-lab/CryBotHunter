@@ -90,3 +90,31 @@ def test_exposure_guard_blocks_symbol_limit():
     )
     assert accepted is False
     assert reason == "symbol exposure limit reached"
+
+
+def test_directional_exposure_reduces_risk_when_side_is_crowded():
+    accepted, reason, multiplier = RiskManager().directional_exposure(
+        side="LONG",
+        side_counts={"LONG": 1, "SHORT": 0},
+        max_same_side_positions=2,
+        reduction_start=1,
+        risk_multiplier=0.5,
+    )
+
+    assert accepted is True
+    assert multiplier == 0.5
+    assert reason == "long direction risk reduced to 0.50x"
+
+
+def test_directional_exposure_blocks_when_side_limit_is_reached():
+    accepted, reason, multiplier = RiskManager().directional_exposure(
+        side="SHORT",
+        side_counts={"LONG": 0, "SHORT": 2},
+        max_same_side_positions=2,
+        reduction_start=1,
+        risk_multiplier=0.5,
+    )
+
+    assert accepted is False
+    assert multiplier == 0.0
+    assert reason == "short direction position limit reached"

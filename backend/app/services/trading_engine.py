@@ -55,6 +55,7 @@ class TradingEngine:
             )
         open_count = await self._open_positions_count(db)
         open_symbols = await self._open_symbols(db)
+        side_counts = await self._open_side_counts(db)
         daily_pnl = await self._daily_pnl(db)
         exposure = await self._portfolio_exposure(db)
         decisions: list[TradingDecision] = []
@@ -102,6 +103,21 @@ class TradingEngine:
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"
             if accepted:
+                side = "LONG" if signal.signal == "BUY" else "SHORT"
+                direction_allowed, direction_reason, direction_multiplier = self.risk.directional_exposure(
+                    side=side,
+                    side_counts=side_counts,
+                    max_same_side_positions=self.settings.max_same_side_positions,
+                    reduction_start=self.settings.directional_risk_reduction_start,
+                    risk_multiplier=self.settings.directional_risk_multiplier,
+                )
+                if not direction_allowed:
+                    accepted = False
+                    reason = direction_reason
+                elif direction_multiplier < 1:
+                    trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * direction_multiplier, 4))
+                    reason = f"{reason}; {direction_reason}"
+            if accepted:
                 accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, trade_settings, exposure)
             else:
                 candidate_notional = 0.0
@@ -118,6 +134,7 @@ class TradingEngine:
                 if position:
                     open_count += 1
                     open_symbols.add(coin.symbol)
+                    side_counts[position.side] = side_counts.get(position.side, 0) + 1
                     exposure["gross"] += candidate_notional
                     exposure["symbols"][coin.symbol] = exposure["symbols"].get(coin.symbol, 0.0) + candidate_notional
                     db.add(LogEntry(level="INFO", message=f"Opened {signal.signal} paper position for {coin.symbol}"))
@@ -492,6 +509,17 @@ class TradingEngine:
     async def _open_symbols(self, db: AsyncSession) -> set[str]:
         result = await db.execute(select(Position.symbol).where(Position.status == "OPEN"))
         return set(result.scalars().all())
+
+    async def _open_side_counts(self, db: AsyncSession) -> dict[str, int]:
+        result = await db.execute(
+            select(Position.side, func.count(Position.id))
+            .where(Position.status == "OPEN")
+            .group_by(Position.side)
+        )
+        counts = {"LONG": 0, "SHORT": 0}
+        for side, count in result.all():
+            counts[str(side)] = int(count)
+        return counts
 
     async def _daily_pnl(self, db: AsyncSession) -> float:
         result = await db.execute(select(func.coalesce(func.sum(Trade.profit), 0.0)))

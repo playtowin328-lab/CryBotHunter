@@ -74,3 +74,19 @@ class RiskManager:
         if current_symbol_exposure + candidate_notional > symbol_limit:
             return False, "symbol exposure limit reached"
         return True, "exposure accepted"
+
+    def directional_exposure(
+        self,
+        side: str,
+        side_counts: dict[str, int],
+        max_same_side_positions: int,
+        reduction_start: int,
+        risk_multiplier: float,
+    ) -> tuple[bool, str, float]:
+        current_count = int(side_counts.get(side, 0))
+        if max_same_side_positions > 0 and current_count >= max_same_side_positions:
+            return False, f"{side.lower()} direction position limit reached", 0.0
+        if reduction_start > 0 and current_count >= reduction_start:
+            multiplier = min(max(risk_multiplier, 0.0), 1.0)
+            return True, f"{side.lower()} direction risk reduced to {multiplier:.2f}x", multiplier
+        return True, "directional exposure accepted", 1.0
