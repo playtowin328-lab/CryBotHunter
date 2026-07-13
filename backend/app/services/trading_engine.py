@@ -13,6 +13,7 @@ from app.services.execution import ExecutionService
 from app.services.learning import LearningService
 from app.services.market_quality import MarketQualityGate
 from app.services.market_scanner import MarketScanner
+from app.services.optimizer import StrategyOptimizerService
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pretrade_quality import PreTradeQualityGate
 from app.services.risk_manager import RiskManager, RiskSettings
@@ -26,6 +27,7 @@ class TradingEngine:
         self.scanner = MarketScanner(self.exchange)
         self.market_quality = MarketQualityGate()
         self.strategy = StrategyCore()
+        self.optimizer = StrategyOptimizerService()
         self.risk = RiskManager()
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
@@ -62,11 +64,18 @@ class TradingEngine:
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
             trade_settings = settings
+            optimizer_reason = ""
+
+            optimization = await self.optimizer.best_for(db, coin.symbol, timeframe)
+            if optimization:
+                trade_settings, optimizer_reason = self.optimizer.apply_to_risk_settings(trade_settings, optimization)
 
             if coin.symbol in open_symbols:
                 accepted, reason = False, "position already open for symbol"
             else:
-                accepted, reason = self.risk.can_open(signal, settings, open_count, daily_pnl)
+                accepted, reason = self.risk.can_open(signal, trade_settings, open_count, daily_pnl)
+                if accepted and optimizer_reason:
+                    reason = f"{reason}; {optimizer_reason}"
             if accepted:
                 learning = await self.learning.assess_entry(db, coin, signal.signal)
                 if not learning.allowed:
@@ -80,15 +89,15 @@ class TradingEngine:
                     accepted = False
                     reason = market_quality.reason
                 elif market_quality.risk_multiplier < 1:
-                    trade_settings = replace(settings, risk_percent=round(trade_settings.risk_percent * market_quality.risk_multiplier, 4))
+                    trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * market_quality.risk_multiplier, 4))
                     reason = f"{reason}; {market_quality.reason}"
             if accepted:
-                quality = await self.quality_gate.assess(db, coin.symbol, timeframe, settings)
+                quality = await self.quality_gate.assess(db, coin.symbol, timeframe, trade_settings)
                 if not quality.allowed:
                     accepted = False
                     reason = quality.reason
                 elif quality.risk_multiplier < 1:
-                    trade_settings = replace(settings, risk_percent=round(trade_settings.risk_percent * quality.risk_multiplier, 4))
+                    trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * quality.risk_multiplier, 4))
                     reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"

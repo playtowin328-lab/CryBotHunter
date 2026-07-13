@@ -1,16 +1,21 @@
 from itertools import product
+from dataclasses import replace
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.entities import StrategyOptimization
 from app.schemas.dto import StrategyOptimizationOut
 from app.services.backtesting import BacktestingService
 from app.services.history import HistoricalDataService
+from app.services.risk_manager import RiskSettings
 
 
 class StrategyOptimizerService:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.backtester = BacktestingService()
         self.history = HistoricalDataService()
 
@@ -76,7 +81,76 @@ class StrategyOptimizerService:
         result = await db.execute(select(StrategyOptimization).order_by(StrategyOptimization.created_at.desc()).limit(limit))
         return list(result.scalars().all())
 
+    async def best_for(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> StrategyOptimization | None:
+        if not self.settings.strategy_optimizer_apply_enabled:
+            return None
+        optimization = await self._best_for_timeframe(db, symbol, timeframe)
+        if optimization:
+            return optimization
+        if timeframe != "1h":
+            return await self._best_for_timeframe(db, symbol, "1h")
+        return None
+
+    async def _best_for_timeframe(self, db: AsyncSession, symbol: str, timeframe: str) -> StrategyOptimization | None:
+        result = await db.execute(
+            select(StrategyOptimization)
+            .where(
+                StrategyOptimization.symbol == symbol,
+                StrategyOptimization.timeframe == timeframe,
+                StrategyOptimization.profit_factor >= self.settings.strategy_optimizer_min_profit_factor,
+                StrategyOptimization.trades_count >= self.settings.strategy_optimizer_min_trades,
+            )
+            .order_by(StrategyOptimization.score.desc(), StrategyOptimization.created_at.desc())
+            .limit(10)
+        )
+        for optimization in result.scalars().all():
+            if self._is_fresh(optimization):
+                return optimization
+        return None
+
+    def apply_to_risk_settings(self, settings: RiskSettings, optimization: StrategyOptimization) -> tuple[RiskSettings, str]:
+        parameters = optimization.parameters or {}
+        stop_loss = self._positive_float(parameters.get("stop_loss_percent"), settings.stop_loss_percent)
+        take_profit = self._positive_float(parameters.get("take_profit_percent"), settings.take_profit_percent)
+        trailing_stop = self._bounded_float(parameters.get("trailing_stop_percent"), settings.trailing_stop_percent, minimum=0.0, maximum=20.0)
+        risk_reward_ratio = max(settings.min_risk_reward_ratio, round(take_profit / stop_loss, 4)) if stop_loss > 0 else settings.risk_reward_ratio
+        optimized = replace(
+            settings,
+            stop_loss_percent=stop_loss,
+            take_profit_percent=take_profit,
+            trailing_stop_percent=trailing_stop,
+            risk_reward_ratio=risk_reward_ratio,
+        )
+        reason = (
+            f"optimizer applied: SL={stop_loss:.2f}%, TP={take_profit:.2f}%, "
+            f"trail={trailing_stop:.2f}%, PF={optimization.profit_factor:.2f}, score={optimization.score:.2f}"
+        )
+        return optimized, reason
+
     def _score(self, total_profit: float, profit_factor: float, win_rate: float, max_drawdown: float, trades_count: int) -> float:
         if trades_count == 0:
             return -9999
         return round(total_profit + profit_factor * 20 + win_rate * 0.5 - max_drawdown * 1.2 + min(trades_count, 30), 4)
+
+    def _is_fresh(self, optimization: StrategyOptimization) -> bool:
+        if self.settings.strategy_optimizer_max_age_days <= 0 or not optimization.created_at:
+            return True
+        created_at = optimization.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - created_at).total_seconds() / 86400
+        return age_days <= self.settings.strategy_optimizer_max_age_days
+
+    def _positive_float(self, value: object, default: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed > 0 else default
+
+    def _bounded_float(self, value: object, default: float, minimum: float, maximum: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        return min(max(parsed, minimum), maximum)
