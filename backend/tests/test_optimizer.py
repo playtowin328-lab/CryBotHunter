@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.models.entities import StrategyOptimization
+from app.services.backtesting import BacktestReport
 from app.services.optimizer import StrategyOptimizerService
 from app.services.risk_manager import RiskSettings
 
@@ -84,6 +85,72 @@ def test_optimizer_rejects_stale_optimization(monkeypatch):
     stale = optimization(created_at=datetime.now(timezone.utc) - timedelta(days=30))
 
     assert service._is_fresh(stale) is False
+
+
+def test_optimizer_splits_train_and_validation(monkeypatch):
+    service = StrategyOptimizerService()
+    candles = list(range(500))
+    monkeypatch.setattr(service.settings, "strategy_optimizer_validation_enabled", True)
+    monkeypatch.setattr(service.settings, "strategy_optimizer_validation_min_candles", 220)
+    monkeypatch.setattr(service.settings, "strategy_optimizer_validation_percent", 30.0)
+
+    train, validation = service._split_train_validation(candles)
+
+    assert len(train) == 280
+    assert len(validation) == 220
+
+
+def test_optimizer_requires_robust_validation(monkeypatch):
+    service = StrategyOptimizerService()
+    monkeypatch.setattr(service.settings, "strategy_optimizer_validation_enabled", True)
+    monkeypatch.setattr(service.settings, "strategy_optimizer_require_validation_pass", True)
+
+    unvalidated = optimization()
+    validated = optimization(
+        parameters={
+            "stop_loss_percent": 1.0,
+            "take_profit_percent": 3.0,
+            "trailing_stop_percent": 1.2,
+            "robustness": {"passed": True},
+        }
+    )
+
+    assert service._passes_robustness(unvalidated) is False
+    assert service._passes_robustness(validated) is True
+
+
+def test_optimizer_robustness_rejects_bad_validation(monkeypatch):
+    service = StrategyOptimizerService()
+    monkeypatch.setattr(service.settings, "strategy_optimizer_validation_enabled", True)
+    monkeypatch.setattr(service.settings, "strategy_optimizer_min_validation_trades", 2)
+    train_report = BacktestReport(60, 1.8, 0, 8, 10, 4, trades_count=12, total_profit=80)
+    validation_report = BacktestReport(20, 0.5, 0, 12, 3, 7, trades_count=2, total_profit=-10)
+
+    robustness = service._robustness(train_report, validation_report)
+
+    assert robustness["passed"] is False
+    assert "validation profit below threshold" in robustness["reason"]
+
+
+def test_optimizer_reason_includes_validation_metrics():
+    service = StrategyOptimizerService()
+    item = optimization(
+        parameters={
+            "stop_loss_percent": 1.0,
+            "take_profit_percent": 3.0,
+            "trailing_stop_percent": 1.2,
+            "robustness": {
+                "passed": True,
+                "validation_profit_factor": 1.4,
+                "validation_profit": 24.5,
+            },
+        }
+    )
+
+    _optimized, reason = service.apply_to_risk_settings(risk_settings(), item)
+
+    assert "valPF=1.40" in reason
+    assert "valPnL=24.50" in reason
 
 
 @pytest.mark.asyncio

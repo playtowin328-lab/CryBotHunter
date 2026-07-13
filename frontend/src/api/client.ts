@@ -175,11 +175,32 @@ export type HistoryReadiness = {
   last_timestamp?: string | null;
 };
 
+export type StrategyOptimizationRobustness = {
+  passed?: boolean;
+  reason?: string;
+  validation_profit?: number;
+  validation_profit_factor?: number;
+  validation_win_rate?: number;
+  validation_trades?: number;
+  validation_max_drawdown?: number;
+  train_profit?: number;
+  overfit_ratio?: number;
+  consistency?: number;
+};
+
+export type StrategyOptimizationParameters = {
+  stop_loss_percent?: number;
+  take_profit_percent?: number;
+  trailing_stop_percent?: number;
+  risk_per_trade?: number;
+  robustness?: StrategyOptimizationRobustness;
+};
+
 export type StrategyOptimization = {
   id?: number | null;
   symbol: string;
   timeframe: string;
-  parameters: Record<string, number>;
+  parameters: StrategyOptimizationParameters;
   score: number;
   win_rate: number;
   profit_factor: number;

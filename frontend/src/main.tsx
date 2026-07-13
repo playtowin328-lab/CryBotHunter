@@ -505,22 +505,29 @@ function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
       <div className="table-title">Лучшие конфиги Strategy Lab</div>
       <table>
         <thead>
-          <tr><th>Пара</th><th>Оценка</th><th>Стоп</th><th>Тейк</th><th>Трейл</th><th>Win Rate</th><th>Profit Factor</th><th>Итого</th></tr>
+          <tr><th>Пара</th><th>Проверка</th><th>Оценка</th><th>Стоп</th><th>Тейк</th><th>Трейл</th><th>Win Rate</th><th>Profit Factor</th><th>Проверка PF</th><th>Проверка PnL</th><th>Итого</th></tr>
         </thead>
         <tbody>
-          {items.map((item, index) => (
-            <tr key={`${item.symbol}-${item.score}-${index}`}>
-              <td className="font-semibold">{item.symbol}</td>
-              <td>{fmt(item.score)}</td>
-              <td>{fmt(item.parameters.stop_loss_percent)}%</td>
-              <td>{fmt(item.parameters.take_profit_percent)}%</td>
-              <td>{fmt(item.parameters.trailing_stop_percent)}%</td>
-              <td>{fmt(item.win_rate)}%</td>
-              <td>{fmt(item.profit_factor)}</td>
-              <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
-            </tr>
-          ))}
-          {!items.length && <EmptyRow cols={8} text="Запусти оптимизацию, чтобы получить конфиги стратегии" />}
+          {items.map((item, index) => {
+            const robustness = item.parameters.robustness;
+            const validationProfit = robustness?.validation_profit ?? 0;
+            return (
+              <tr key={`${item.symbol}-${item.score}-${index}`}>
+                <td className="font-semibold">{item.symbol}</td>
+                <td><span className={`pill ${robustness?.passed ? "buy" : "sell"}`} title={robustness?.reason ?? "Нет validation-проверки"}>{robustness?.passed ? "Прошел" : "Отклонен"}</span></td>
+                <td>{fmt(item.score)}</td>
+                <td>{fmt(item.parameters.stop_loss_percent)}%</td>
+                <td>{fmt(item.parameters.take_profit_percent)}%</td>
+                <td>{fmt(item.parameters.trailing_stop_percent)}%</td>
+                <td>{fmt(item.win_rate)}%</td>
+                <td>{fmt(item.profit_factor)}</td>
+                <td>{fmt(robustness?.validation_profit_factor)}</td>
+                <td className={validationProfit >= 0 ? "text-accent" : "text-danger"}>${fmt(validationProfit)}</td>
+                <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
+              </tr>
+            );
+          })}
+          {!items.length && <EmptyRow cols={11} text="Запусти оптимизацию, чтобы получить конфиги стратегии" />}
         </tbody>
       </table>
     </div>

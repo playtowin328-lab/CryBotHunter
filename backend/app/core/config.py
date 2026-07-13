@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     strategy_optimizer_refresh_hours: int = 24
     strategy_optimizer_limit: int = 800
     strategy_optimizer_top_n: int = 5
+    strategy_optimizer_validation_enabled: bool = True
+    strategy_optimizer_require_validation_pass: bool = True
+    strategy_optimizer_validation_percent: float = 30.0
+    strategy_optimizer_validation_min_candles: int = 220
+    strategy_optimizer_min_validation_trades: int = 2
+    strategy_optimizer_min_validation_profit_factor: float = 1.0
+    strategy_optimizer_min_validation_win_rate: float = 35.0
+    strategy_optimizer_min_validation_profit: float = 0.0
+    strategy_optimizer_max_overfit_ratio: float = 8.0
     candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500
