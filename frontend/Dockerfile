@@ -8,6 +8,7 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.27-alpine
+ENV API_PROXY_URL=http://127.0.0.1:8000
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 8080
