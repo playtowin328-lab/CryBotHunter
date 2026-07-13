@@ -145,7 +145,7 @@ button, input, select {
   @apply p-0;
 }
 
-.panel-block > .field, .panel-block > .muted, .panel-block > .btn {
+.panel-block > .field, .panel-block > .muted, .panel-block > .btn, .panel-block > .alert {
   @apply mx-4 mb-4;
 }
 

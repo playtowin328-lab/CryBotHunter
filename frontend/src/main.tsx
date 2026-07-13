@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -23,8 +23,8 @@ type View = "dashboard" | "market" | "agents" | "logs" | "settings";
 function App() {
   const [view, setView] = React.useState<View>("dashboard");
   const [tokenReady, setTokenReady] = React.useState(Boolean(localStorage.getItem("token")));
-  const [email, setEmail] = React.useState("demo@example.com");
-  const [password, setPassword] = React.useState("password123");
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState("");
 
   async function login(mode: "login" | "register") {
@@ -55,11 +55,11 @@ function App() {
           {error && <Alert tone="danger" text={error} />}
           <label className="field">
             Email
-            <input value={email} onChange={(event) => setEmail(event.target.value)} />
+            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" />
           </label>
           <label className="field">
             Пароль
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Минимум 8 символов" />
           </label>
           <div className="action-row">
             <button className="btn primary flex-1" onClick={() => login("login")}><KeyRound size={16} /> Войти</button>
@@ -642,6 +642,9 @@ function SettingsView() {
     api_key: "",
     secret_key: "",
     passphrase: "",
+    api_key_masked: null as string | null,
+    secret_key_masked: null as string | null,
+    passphrase_masked: null as string | null,
     risk_percent: 1,
     daily_risk_percent: 3,
     max_positions: 3,
@@ -661,10 +664,13 @@ function SettingsView() {
   const [error, setError] = React.useState("");
 
   React.useEffect(() => {
-    void api.get("/settings").then(({ data }) => {
+    void api.get<UserSettings>("/settings").then(({ data }) => {
       setSettings((current) => ({
         ...current,
         exchange: data.exchange,
+        api_key_masked: data.api_key_masked ?? null,
+        secret_key_masked: data.secret_key_masked ?? null,
+        passphrase_masked: data.passphrase_masked ?? null,
         risk_percent: data.risk_percent,
         daily_risk_percent: data.daily_risk_percent,
         max_positions: data.max_positions,
@@ -690,9 +696,21 @@ function SettingsView() {
   async function save() {
     try {
       setError("");
-      await api.put("/settings", settings);
+      const { api_key_masked, secret_key_masked, passphrase_masked, ...payload } = settings;
+      void api_key_masked;
+      void secret_key_masked;
+      void passphrase_masked;
+      const { data } = await api.put<UserSettings>("/settings", payload);
       setMessage({ ok: true, message: "Настройки сохранены" });
-      setSettings((current) => ({ ...current, api_key: "", secret_key: "", passphrase: "" }));
+      setSettings((current) => ({
+        ...current,
+        api_key: "",
+        secret_key: "",
+        passphrase: "",
+        api_key_masked: data.api_key_masked ?? current.api_key_masked,
+        secret_key_masked: data.secret_key_masked ?? current.secret_key_masked,
+        passphrase_masked: data.passphrase_masked ?? current.passphrase_masked
+      }));
     } catch (err) {
       setError(readError(err));
     }
@@ -716,11 +734,18 @@ function SettingsView() {
       {message && <Alert tone={message.ok ? "good" : "danger"} text={message.message} />}
       <div className="settings-grid">
         <div className="panel-block">
-          <div className="table-title">Ключи биржи</div>
+          <div className="table-title">Подключение Binance</div>
+          <p className="muted">
+            Здесь подключается реальная биржа. В Binance создай API key с доступом к Futures/Spot, вставь API Key и Secret Key, затем нажми «Сохранить».
+          </p>
+          <Alert
+            tone={settings.api_key_masked && settings.secret_key_masked ? "good" : "danger"}
+            text={settings.api_key_masked && settings.secret_key_masked ? `Binance подключен: ${settings.api_key_masked}` : "Binance еще не подключен: добавь API Key и Secret Key"}
+          />
           <label className="field">Биржа<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
-          <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder="скрывается после сохранения" /></label>
-          <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder="скрывается после сохранения" /></label>
-          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder="необязательно" /></label>
+          <label className="field">Binance API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder={settings.api_key_masked ?? "Вставь API Key из Binance"} /></label>
+          <label className="field">Binance Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder={settings.secret_key_masked ?? "Вставь Secret Key из Binance"} /></label>
+          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder={settings.passphrase_masked ?? "Для Binance не нужна"} /></label>
         </div>
         <div className="panel-block">
           <div className="table-title">Контроль риска</div>

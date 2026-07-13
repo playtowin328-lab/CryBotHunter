@@ -194,6 +194,27 @@ export type ActionMessage = {
   message: string;
 };
 
+export type UserSettings = {
+  exchange: string;
+  api_key_masked?: string | null;
+  secret_key_masked?: string | null;
+  passphrase_masked?: string | null;
+  risk_percent: number;
+  daily_risk_percent: number;
+  max_positions: number;
+  min_rating: number;
+  scan_interval: string;
+  stop_loss_percent: number;
+  take_profit_percent: number;
+  trailing_stop_percent: number;
+  atr_stop_multiplier: number;
+  risk_reward_ratio: number;
+  breakeven_trigger_r: number;
+  breakeven_offset_percent: number;
+  partial_take_profit_r: number;
+  partial_close_percent: number;
+};
+
 export type AgentDecision = {
   agent_name: string;
   symbol: string;
