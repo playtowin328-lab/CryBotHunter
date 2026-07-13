@@ -11,6 +11,7 @@ from app.services.agents import AgentOrchestrator
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
 from app.services.learning import LearningService
+from app.services.market_quality import MarketQualityGate
 from app.services.market_scanner import MarketScanner
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pretrade_quality import PreTradeQualityGate
@@ -23,6 +24,7 @@ class TradingEngine:
     def __init__(self, exchange: ExchangeClient | None = None) -> None:
         self.exchange = exchange or ExchangeClient()
         self.scanner = MarketScanner(self.exchange)
+        self.market_quality = MarketQualityGate()
         self.strategy = StrategyCore()
         self.risk = RiskManager()
         self.execution = ExecutionService(self.exchange)
@@ -73,12 +75,20 @@ class TradingEngine:
                 elif learning.penalty > 0:
                     reason = f"{reason}; {learning.reason}"
             if accepted:
+                market_quality = self.market_quality.assess(coin)
+                if not market_quality.allowed:
+                    accepted = False
+                    reason = market_quality.reason
+                elif market_quality.risk_multiplier < 1:
+                    trade_settings = replace(settings, risk_percent=round(trade_settings.risk_percent * market_quality.risk_multiplier, 4))
+                    reason = f"{reason}; {market_quality.reason}"
+            if accepted:
                 quality = await self.quality_gate.assess(db, coin.symbol, timeframe, settings)
                 if not quality.allowed:
                     accepted = False
                     reason = quality.reason
                 elif quality.risk_multiplier < 1:
-                    trade_settings = replace(settings, risk_percent=round(settings.risk_percent * quality.risk_multiplier, 4))
+                    trade_settings = replace(settings, risk_percent=round(trade_settings.risk_percent * quality.risk_multiplier, 4))
                     reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"

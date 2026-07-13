@@ -35,6 +35,8 @@ class MarketScanner:
             frame = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
             indicators = self.calculate_indicators(frame).iloc[-1]
             ticker = tickers.get(symbol, {})
+            bid = self._optional_float(ticker.get("bid"))
+            ask = self._optional_float(ticker.get("ask"))
             row = {
                 "symbol": symbol,
                 "price": float(ticker.get("last") or indicators["close"]),
@@ -48,6 +50,9 @@ class MarketScanner:
                 "macd": float(indicators["macd"]),
                 "funding_rate": 0.0,
                 "open_interest": 0.0,
+                "bid": bid,
+                "ask": ask,
+                "spread_bps": self._spread_bps(bid, ask),
             }
             coins.append(self._coin_from_row(row))
         return coins
@@ -68,7 +73,9 @@ class MarketScanner:
         volatility_score = max(0, 15 - abs(float(row["atr"]) / float(row["price"]) * 100 - 3) * 3)
         volume_growth_score = min(max(float(row["price_change_percent"]), 0) * 4, 20)
         liquidity_score = min(float(row["open_interest"]) / 1_000_000_000 * 20, 20)
-        return int(round(volume_score + trend_score + volatility_score + volume_growth_score + liquidity_score))
+        spread_penalty = min(float(row.get("spread_bps") or 0) / 5, 10)
+        score = round(volume_score + trend_score + volatility_score + volume_growth_score + liquidity_score - spread_penalty)
+        return int(max(0, min(100, score)))
 
     def calculate_indicators(self, candles: pd.DataFrame) -> pd.DataFrame:
         close = candles["close"]
@@ -96,6 +103,8 @@ class MarketScanner:
         base = {"BTC/USDT": 68000, "ETH/USDT": 3600, "SOL/USDT": 155, "BNB/USDT": 620}.get(symbol, 2.5)
         shift = rng.uniform(-0.04, 0.06)
         price = base * (1 + shift)
+        spread_bps = rng.uniform(1.5, 18.0)
+        half_spread = price * spread_bps / 20_000
         ema200 = price * rng.uniform(0.94, 1.03)
         ema50 = price * rng.uniform(0.97, 1.04)
         return {
@@ -111,4 +120,19 @@ class MarketScanner:
             "macd": rng.uniform(-20, 20),
             "funding_rate": rng.uniform(-0.02, 0.02),
             "open_interest": rng.uniform(200_000_000, 2_000_000_000),
+            "bid": round(price - half_spread, 8),
+            "ask": round(price + half_spread, 8),
+            "spread_bps": round(spread_bps, 2),
         }
+
+    def _spread_bps(self, bid: float | None, ask: float | None) -> float:
+        if not bid or not ask or bid <= 0 or ask <= 0 or ask < bid:
+            return 0.0
+        midpoint = (bid + ask) / 2
+        return round((ask - bid) / midpoint * 10_000, 2)
+
+    def _optional_float(self, value: object) -> float | None:
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None

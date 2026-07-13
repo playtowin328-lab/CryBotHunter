@@ -76,6 +76,9 @@ class MarketCoin(BaseModel):
     macd: float
     funding_rate: float = 0
     open_interest: float = 0
+    bid: float | None = None
+    ask: float | None = None
+    spread_bps: float = 0
     rating: int
     regime: str = "UNKNOWN"
     regime_score: int = 0
