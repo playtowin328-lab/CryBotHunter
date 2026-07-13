@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import Order, OrderStatus
-from app.services.exchange import ExchangeClient
+from app.services.exchange import ExchangeClient, PreparedOrder
 
 
 class ExecutionService:
@@ -33,13 +33,24 @@ class ExecutionService:
         db.add(order)
         await db.flush()
         try:
+            prepared_order = await self.exchange.prepare_order(symbol, amount, reference_price)
+            order.requested_amount = prepared_order.amount
+            order.raw = {
+                **(order.raw or {}),
+                "exchange_metadata": {
+                    "fee_rate": prepared_order.fee_rate,
+                    "min_amount": prepared_order.min_amount,
+                    "min_cost": prepared_order.min_cost,
+                    "available": prepared_order.metadata_available,
+                },
+            }
             if self.settings.paper_trading:
-                self._fill_paper(order, reference_price)
+                self._fill_paper(order, reference_price, prepared_order)
             else:
                 raw = await self.exchange.create_order(
                     symbol,
                     side,
-                    amount,
+                    prepared_order.amount,
                     "market",
                     client_order_id=self._client_order_id(order.id, reason),
                     reduce_only=reason.startswith("EXIT") or reason == "PARTIAL_TAKE_PROFIT",
@@ -52,11 +63,11 @@ class ExecutionService:
                 order.raw = raw
         except Exception as exc:
             order.status = OrderStatus.FAILED.value
-            order.raw = {"reason": reason, "error": exc.__class__.__name__}
+            order.raw = {"reason": reason, "error": exc.__class__.__name__, "message": str(exc)}
         order.updated_at = datetime.now(timezone.utc)
         return order
 
-    def _fill_paper(self, order: Order, reference_price: float) -> None:
+    def _fill_paper(self, order: Order, reference_price: float, prepared_order: PreparedOrder) -> None:
         slippage_direction = 1 if order.side.lower() == "buy" else -1
         slippage = reference_price * (self.settings.paper_slippage_bps / 10_000) * slippage_direction
         average_price = reference_price + slippage
@@ -66,11 +77,11 @@ class ExecutionService:
         order.filled_amount = order.requested_amount
         order.average_price = round(average_price, 8)
         order.slippage = round(abs(slippage), 8)
-        order.fee = round(notional * self.settings.paper_fee_rate, 8)
+        order.fee = round(notional * prepared_order.fee_rate, 8)
         order.raw = {
             **(order.raw or {}),
             "paper": True,
-            "fee_rate": self.settings.paper_fee_rate,
+            "fee_rate": prepared_order.fee_rate,
             "slippage_bps": self.settings.paper_slippage_bps,
         }
 

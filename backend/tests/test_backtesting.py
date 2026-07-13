@@ -39,3 +39,16 @@ def test_walk_forward_returns_window_summary():
     assert report.profitable_windows >= 0
     assert len(report.windows) == report.window_count
     assert report.windows[0].parameters["risk_per_trade"] == 10.0
+
+
+def test_backtest_cost_model_reduces_trade_profit():
+    service = BacktestingService()
+    position = {"side": "LONG", "entry": 100.0, "volume": 2.0}
+
+    clean_profit = service._profit_after_costs(position, exit_price=110.0, fee_rate=0.0)
+    realistic_profit = service._profit_after_costs(position, exit_price=110.0, fee_rate=0.001)
+
+    assert clean_profit == 20.0
+    assert realistic_profit < clean_profit
+    assert service._apply_slippage(100.0, "buy", 10.0) > 100.0
+    assert service._apply_slippage(100.0, "sell", 10.0) < 100.0

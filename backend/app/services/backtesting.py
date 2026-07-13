@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from app.core.config import get_settings
 from app.models.entities import Candle
 from app.schemas.dto import MarketCoin
 from app.services.market_scanner import MarketScanner
@@ -50,6 +51,7 @@ class WalkForwardReport:
 
 class BacktestingService:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.scanner = MarketScanner()
         self.strategy = StrategyCore()
 
@@ -60,9 +62,13 @@ class BacktestingService:
         stop_loss_percent: float = 1.5,
         take_profit_percent: float = 3.0,
         trailing_stop_percent: float = 0.0,
+        fee_rate: float | None = None,
+        slippage_bps: float | None = None,
     ) -> BacktestReport:
         if len(candles) < 220:
             return self.summarize([])
+        effective_fee_rate = self.settings.paper_fee_rate if fee_rate is None else fee_rate
+        effective_slippage_bps = self.settings.paper_slippage_bps if slippage_bps is None else slippage_bps
         frame = pd.DataFrame(
             [
                 {
@@ -90,7 +96,8 @@ class BacktestingService:
                     elif row["high"] >= position["take"]:
                         exit_price = position["take"]
                     if exit_price is not None:
-                        profits.append((exit_price - position["entry"]) * position["volume"])
+                        exit_fill = self._apply_slippage(exit_price, "sell", effective_slippage_bps)
+                        profits.append(self._profit_after_costs(position, exit_fill, effective_fee_rate))
                         position = None
                 else:
                     if trailing_stop_percent > 0:
@@ -101,7 +108,8 @@ class BacktestingService:
                     elif row["low"] <= position["take"]:
                         exit_price = position["take"]
                     if exit_price is not None:
-                        profits.append((position["entry"] - exit_price) * position["volume"])
+                        exit_fill = self._apply_slippage(exit_price, "buy", effective_slippage_bps)
+                        profits.append(self._profit_after_costs(position, exit_fill, effective_fee_rate))
                         position = None
                 if position:
                     continue
@@ -125,10 +133,18 @@ class BacktestingService:
             signal = self.strategy.evaluate(coin, average_volume=average_volume)
             if signal.signal in {"BUY", "SELL"}:
                 entry = float(row["close"])
-                stop = entry * (1 - stop_loss_percent / 100) if signal.signal == "BUY" else entry * (1 + stop_loss_percent / 100)
-                take = entry * (1 + take_profit_percent / 100) if signal.signal == "BUY" else entry * (1 - take_profit_percent / 100)
-                volume = risk_per_trade / abs(entry - stop)
-                position = {"side": "LONG" if signal.signal == "BUY" else "SHORT", "entry": entry, "stop": stop, "take": take, "volume": volume}
+                entry_side = "buy" if signal.signal == "BUY" else "sell"
+                entry_fill = self._apply_slippage(entry, entry_side, effective_slippage_bps)
+                stop = entry_fill * (1 - stop_loss_percent / 100) if signal.signal == "BUY" else entry_fill * (1 + stop_loss_percent / 100)
+                take = entry_fill * (1 + take_profit_percent / 100) if signal.signal == "BUY" else entry_fill * (1 - take_profit_percent / 100)
+                volume = risk_per_trade / abs(entry_fill - stop)
+                position = {
+                    "side": "LONG" if signal.signal == "BUY" else "SHORT",
+                    "entry": entry_fill,
+                    "stop": stop,
+                    "take": take,
+                    "volume": volume,
+                }
         return self.summarize(profits)
 
     def walk_forward(
@@ -187,6 +203,19 @@ class BacktestingService:
             scored.append((score, parameters, report))
         _score, parameters, report = max(scored, key=lambda item: item[0])
         return parameters, report
+
+    def _apply_slippage(self, price: float, side: str, slippage_bps: float) -> float:
+        direction = 1 if side.lower() == "buy" else -1
+        return price * (1 + direction * slippage_bps / 10_000)
+
+    def _profit_after_costs(self, position: dict, exit_price: float, fee_rate: float) -> float:
+        if position["side"] == "LONG":
+            gross_profit = (exit_price - position["entry"]) * position["volume"]
+        else:
+            gross_profit = (position["entry"] - exit_price) * position["volume"]
+        entry_fee = abs(position["entry"] * position["volume"]) * fee_rate
+        exit_fee = abs(exit_price * position["volume"]) * fee_rate
+        return gross_profit - entry_fee - exit_fee
 
     def _walk_forward_summary(self, windows: list[WalkForwardWindow]) -> WalkForwardReport:
         if not windows:
