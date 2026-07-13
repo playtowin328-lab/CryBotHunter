@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import ccxt
@@ -6,6 +7,15 @@ import ccxt
 from app.core.config import get_settings
 from app.core.security import decrypt_secret
 from app.models.entities import UserSettings
+
+
+@dataclass(frozen=True)
+class PreparedOrder:
+    amount: float
+    fee_rate: float
+    min_amount: float | None
+    min_cost: float | None
+    metadata_available: bool
 
 
 class ExchangeClient:
@@ -46,6 +56,36 @@ class ExchangeClient:
     async def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 250) -> list[list[float]]:
         client = self._client(authenticated=False)
         return await asyncio.to_thread(client.fetch_ohlcv, symbol, timeframe, None, limit)
+
+    async def prepare_order(self, symbol: str, amount: float, reference_price: float) -> PreparedOrder:
+        return await asyncio.to_thread(self._prepare_order_sync, symbol, amount, reference_price)
+
+    def _prepare_order_sync(self, symbol: str, amount: float, reference_price: float) -> PreparedOrder:
+        client = self._client(authenticated=False)
+        try:
+            client.load_markets()
+            market = client.market(symbol)
+            normalized_amount = self._amount_to_precision(client, symbol, amount)
+            min_amount = self._nested_float(market, "limits", "amount", "min")
+            min_cost = self._nested_float(market, "limits", "cost", "min")
+            fee_rate = self._float_or_default(market.get("taker"), self.settings.paper_fee_rate)
+            self._validate_minimums(symbol, normalized_amount, reference_price, min_amount, min_cost)
+            return PreparedOrder(
+                amount=normalized_amount,
+                fee_rate=fee_rate,
+                min_amount=min_amount,
+                min_cost=min_cost,
+                metadata_available=True,
+            )
+        except (ccxt.BaseError, AttributeError, KeyError):
+            normalized_amount = round(float(amount), 8)
+            return PreparedOrder(
+                amount=normalized_amount,
+                fee_rate=self.settings.paper_fee_rate,
+                min_amount=None,
+                min_cost=None,
+                metadata_available=False,
+            )
 
     async def create_order(
         self,
@@ -110,3 +150,45 @@ class ExchangeClient:
         if reduce_only:
             params["reduceOnly"] = True
         return params
+
+    def _amount_to_precision(self, client: ccxt.Exchange, symbol: str, amount: float) -> float:
+        try:
+            normalized = float(client.amount_to_precision(symbol, amount))
+        except (ccxt.BaseError, ValueError, TypeError):
+            normalized = round(float(amount), 8)
+        if normalized <= 0:
+            raise RuntimeError(f"Order amount for {symbol} is too small after exchange precision rounding.")
+        return normalized
+
+    def _validate_minimums(
+        self,
+        symbol: str,
+        amount: float,
+        reference_price: float,
+        min_amount: float | None,
+        min_cost: float | None,
+    ) -> None:
+        if min_amount is not None and amount < min_amount:
+            raise RuntimeError(f"Order amount for {symbol} is below exchange minimum: {amount} < {min_amount}.")
+        notional = abs(amount * reference_price)
+        if min_cost is not None and notional < min_cost:
+            raise RuntimeError(f"Order notional for {symbol} is below exchange minimum: {notional:.8f} < {min_cost}.")
+
+    def _nested_float(self, payload: dict[str, Any], *keys: str) -> float | None:
+        value: Any = payload
+        for key in keys:
+            if not isinstance(value, dict):
+                return None
+            value = value.get(key)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _float_or_default(self, value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
