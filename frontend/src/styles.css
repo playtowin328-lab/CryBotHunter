@@ -97,6 +97,10 @@ button, input, select {
   @apply grid gap-3 sm:grid-cols-2;
 }
 
+.table-summary {
+  @apply px-4 py-4;
+}
+
 .two-col {
   @apply grid gap-5 lg:grid-cols-[1.6fr_1fr];
 }

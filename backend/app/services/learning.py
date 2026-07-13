@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,7 @@ class LearningService:
     warn_threshold = 1.25
     max_penalty = 5.0
     min_observations_for_block = 2
+    half_life_days = 14.0
 
     def entry_context(self, coin: MarketCoin, signal: str, reasons: list[str]) -> dict[str, Any]:
         atr_percent = self._atr_percent(float(coin.atr), float(coin.price))
@@ -52,7 +54,7 @@ class LearningService:
             for rule in rules:
                 if rule.penalty > 0:
                     weight = 1.0 if scope == "GLOBAL" else 1.25
-                    confidence = self.rule_confidence(rule.observations)
+                    confidence = self.rule_confidence(rule.observations, rule.updated_at)
                     effective_penalty = rule.penalty * weight * confidence
                     total_penalty += effective_penalty
                     matched.append(f"{rule.feature_key}={rule.feature_value}:{effective_penalty:.2f}")
@@ -139,18 +141,27 @@ class LearningService:
             return min(1.0, 0.35 + abs(profit) / 25)
         return -min(0.5, 0.15 + profit / 50)
 
-    def rule_confidence(self, observations: int) -> float:
+    def rule_confidence(self, observations: int, updated_at: datetime | None = None) -> float:
         if observations <= 0:
             return 0.0
-        return min(1.0, observations / self.min_observations_for_block)
+        observation_confidence = min(1.0, observations / self.min_observations_for_block)
+        return round(observation_confidence * self.recency_weight(updated_at), 4)
 
-    def risk_level(self, penalty: float, observations: int) -> str:
-        effective = penalty * self.rule_confidence(observations)
+    def risk_level(self, penalty: float, observations: int, updated_at: datetime | None = None) -> str:
+        effective = penalty * self.rule_confidence(observations, updated_at)
         if effective >= self.block_threshold:
             return "BLOCK"
         if effective >= self.warn_threshold:
             return "WARN"
         return "WATCH"
+
+    def recency_weight(self, updated_at: datetime | None) -> float:
+        if not updated_at:
+            return 1.0
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        age_days = max((datetime.now(timezone.utc) - updated_at).total_seconds() / 86400, 0)
+        return round(0.5 ** (age_days / self.half_life_days), 4)
 
     def _features_from_context(self, context: dict[str, Any]) -> list[tuple[str, str]]:
         feature_keys = [

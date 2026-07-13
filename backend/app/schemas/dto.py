@@ -242,6 +242,16 @@ class LearningRuleOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class LearningSummaryOut(BaseModel):
+    total_rules: int
+    watch_rules: int
+    warn_rules: int
+    block_rules: int
+    total_observations: int
+    total_losses: int
+    total_wins: int
+
+
 class ActionMessage(BaseModel):
     ok: bool
     message: str

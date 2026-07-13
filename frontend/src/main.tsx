@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -223,6 +223,7 @@ function DashboardView() {
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [optimizations, setOptimizations] = React.useState<StrategyOptimization[]>([]);
   const [learningRules, setLearningRules] = React.useState<LearningRule[]>([]);
+  const [learningSummary, setLearningSummary] = React.useState<LearningSummary | null>(null);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
@@ -238,7 +239,7 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
         api.get("/trading/guard"),
@@ -246,7 +247,8 @@ function DashboardView() {
         api.get("/orders"),
         api.get("/strategy-lab/results"),
         api.get("/market/history/readiness"),
-        api.get("/strategy-lab/learning-rules")
+        api.get("/strategy-lab/learning-rules"),
+        api.get("/strategy-lab/learning-summary")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
@@ -256,6 +258,7 @@ function DashboardView() {
       setOptimizations(optimizationsRes.data);
       setReadiness(readinessRes.data);
       setLearningRules(learningRes.data);
+      setLearningSummary(learningSummaryRes.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -422,7 +425,7 @@ function DashboardView() {
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />
-      <LearningRulesTable items={learningRules} />
+      <LearningRulesTable items={learningRules} summary={learningSummary} />
       <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
@@ -456,10 +459,20 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
   );
 }
 
-function LearningRulesTable({ items }: { items: LearningRule[] }) {
+function LearningRulesTable({ items, summary }: { items: LearningRule[]; summary: LearningSummary | null }) {
   return (
     <div className="table-wrap">
       <div className="table-title">Память бота об ошибках</div>
+      {summary && (
+        <div className="mini-grid table-summary">
+          <Metric label="Правил" value={String(summary.total_rules)} />
+          <Metric label="Наблюдений" value={String(summary.total_observations)} />
+          <Metric label="WATCH" value={String(summary.watch_rules)} />
+          <Metric label="WARN" value={String(summary.warn_rules)} tone={summary.warn_rules > 0 ? "bad" : undefined} />
+          <Metric label="BLOCK" value={String(summary.block_rules)} tone={summary.block_rules > 0 ? "bad" : undefined} />
+          <Metric label="W/L" value={`${summary.total_wins}/${summary.total_losses}`} />
+        </div>
+      )}
       <table>
         <thead>
           <tr><th>Риск</th><th>Scope</th><th>Сторона</th><th>Признак</th><th>Значение</th><th>Penalty</th><th>Уверенность</th><th>W/L</th><th>Итог</th><th>Причина</th></tr>

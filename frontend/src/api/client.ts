@@ -206,6 +206,16 @@ export type LearningRule = {
   updated_at?: string | null;
 };
 
+export type LearningSummary = {
+  total_rules: number;
+  watch_rules: number;
+  warn_rules: number;
+  block_rules: number;
+  total_observations: number;
+  total_losses: number;
+  total_wins: number;
+};
+
 export type ActionMessage = {
   ok: boolean;
   message: string;

@@ -6,7 +6,7 @@ from app.db.session import get_db
 from sqlalchemy import select
 
 from app.models.entities import LearningRule, User
-from app.schemas.dto import LearningRuleOut, StrategyOptimizationOut
+from app.schemas.dto import LearningRuleOut, LearningSummaryOut, StrategyOptimizationOut
 from app.services.learning import LearningService
 from app.services.optimizer import StrategyOptimizerService
 
@@ -43,8 +43,25 @@ async def learning_rules(_: User = Depends(current_user), db: AsyncSession = Dep
     return [
         LearningRuleOut(
             **rule.__dict__,
-            confidence=round(service.rule_confidence(rule.observations), 2),
-            risk_level=service.risk_level(rule.penalty, rule.observations),
+            confidence=round(service.rule_confidence(rule.observations, rule.updated_at), 2),
+            risk_level=service.risk_level(rule.penalty, rule.observations, rule.updated_at),
         )
         for rule in result.scalars().all()
     ]
+
+
+@router.get("/learning-summary", response_model=LearningSummaryOut)
+async def learning_summary(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> LearningSummaryOut:
+    result = await db.execute(select(LearningRule))
+    service = LearningService()
+    rules = list(result.scalars().all())
+    levels = [service.risk_level(rule.penalty, rule.observations, rule.updated_at) for rule in rules]
+    return LearningSummaryOut(
+        total_rules=len(rules),
+        watch_rules=sum(1 for level in levels if level == "WATCH"),
+        warn_rules=sum(1 for level in levels if level == "WARN"),
+        block_rules=sum(1 for level in levels if level == "BLOCK"),
+        total_observations=sum(rule.observations for rule in rules),
+        total_losses=sum(rule.losses for rule in rules),
+        total_wins=sum(rule.wins for rule in rules),
+    )

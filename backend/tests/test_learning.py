@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from app.schemas.dto import MarketCoin
 from app.services.learning import LearningService
 
@@ -62,3 +64,11 @@ def test_learning_risk_level_uses_effective_penalty():
 
     assert service.risk_level(3.0, 1) == "WARN"
     assert service.risk_level(3.0, 2) == "BLOCK"
+
+
+def test_learning_confidence_decays_with_age():
+    service = LearningService()
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=service.half_life_days)
+
+    assert 0.49 <= service.recency_weight(old_timestamp) <= 0.51
+    assert 0.49 <= service.rule_confidence(2, old_timestamp) <= 0.51
