@@ -40,3 +40,10 @@ def test_learning_penalty_delta_penalizes_losses_and_forgives_wins():
 
     assert service._penalty_delta(-10) > 0
     assert service._penalty_delta(10) < 0
+
+
+def test_learning_service_has_bounded_penalty_policy():
+    service = LearningService()
+
+    assert service.max_penalty == 5.0
+    assert service.block_threshold > service.warn_threshold

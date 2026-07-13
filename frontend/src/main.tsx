@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -222,6 +222,7 @@ function DashboardView() {
   const [data, setData] = React.useState<Dashboard | null>(null);
   const [orders, setOrders] = React.useState<Order[]>([]);
   const [optimizations, setOptimizations] = React.useState<StrategyOptimization[]>([]);
+  const [learningRules, setLearningRules] = React.useState<LearningRule[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
@@ -237,14 +238,15 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes] = await Promise.all([
         api.get("/dashboard"),
         api.get("/trading/status"),
         api.get("/trading/guard"),
         api.get("/trading/backtest/sample"),
         api.get("/orders"),
         api.get("/strategy-lab/results"),
-        api.get("/market/history/readiness")
+        api.get("/market/history/readiness"),
+        api.get("/strategy-lab/learning-rules")
       ]);
       setData(dashboardRes.data);
       setStatus(statusRes.data);
@@ -253,6 +255,7 @@ function DashboardView() {
       setOrders(ordersRes.data);
       setOptimizations(optimizationsRes.data);
       setReadiness(readinessRes.data);
+      setLearningRules(learningRes.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -419,6 +422,7 @@ function DashboardView() {
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />
+      <LearningRulesTable items={learningRules} />
       <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
@@ -446,6 +450,34 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
             </tr>
           ))}
           {!items.length && <EmptyRow cols={6} text="Данных о готовности датасета пока нет" />}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LearningRulesTable({ items }: { items: LearningRule[] }) {
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Память бота об ошибках</div>
+      <table>
+        <thead>
+          <tr><th>Scope</th><th>Сторона</th><th>Признак</th><th>Значение</th><th>Penalty</th><th>W/L</th><th>Итог</th><th>Причина</th></tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td>{item.scope}</td>
+              <td>{translateAction(item.side)}</td>
+              <td>{translateFeature(item.feature_key)}</td>
+              <td>{translateFeatureValue(item.feature_value)}</td>
+              <td className={item.penalty >= 2.5 ? "text-danger" : item.penalty > 0 ? "text-slate-700" : "text-accent"}>{fmt(item.penalty)}</td>
+              <td>{item.wins}/{item.losses}</td>
+              <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
+              <td>{translateStatus(item.last_reason ?? "-")}</td>
+            </tr>
+          ))}
+          {!items.length && <EmptyRow cols={8} text="Бот пока не накопил правил обучения. Они появятся после закрытых сделок." />}
         </tbody>
       </table>
     </div>
@@ -843,9 +875,53 @@ function translateStatus(value: string) {
     CANCELLED: "Отменен",
     FAILED: "Ошибка",
     OPEN: "Открыта",
-    CLOSED: "Закрыта"
+    CLOSED: "Закрыта",
+    STOP_LOSS: "Стоп-лосс",
+    TAKE_PROFIT: "Тейк-профит"
   };
   return labels[value] ?? value;
+}
+
+function translateFeature(value: string) {
+  const labels: Record<string, string> = {
+    regime: "Режим",
+    regime_score_bucket: "Сила режима",
+    rsi_bucket: "RSI зона",
+    atr_bucket: "ATR зона",
+    trend_stack: "EMA структура",
+    macd_direction: "MACD",
+    rating_bucket: "Рейтинг",
+    exit_reason: "Причина выхода"
+  };
+  return labels[value] ?? value;
+}
+
+function translateFeatureValue(value: string) {
+  const labels: Record<string, string> = {
+    TRENDING_UP: "Рост",
+    TRENDING_DOWN: "Падение",
+    HIGH_VOLATILITY: "Высокая волатильность",
+    LOW_LIQUIDITY: "Низкая ликвидность",
+    UNKNOWN: "Неизвестно",
+    weak: "Слабый",
+    medium: "Средний",
+    strong: "Сильный",
+    elite: "Элитный",
+    oversold: "Перепроданность",
+    bearish: "Медвежья",
+    neutral: "Нейтральная",
+    bullish: "Бычья",
+    overbought: "Перекупленность",
+    quiet: "Тихо",
+    normal: "Норма",
+    hot: "Горячо",
+    extreme: "Экстрим",
+    mixed: "Смешанная",
+    positive: "Положительный",
+    negative: "Отрицательный",
+    flat: "Плоский"
+  };
+  return translateStatus(labels[value] ?? value);
 }
 
 function translateRegime(value: string) {

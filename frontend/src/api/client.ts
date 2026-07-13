@@ -189,6 +189,21 @@ export type StrategyOptimization = {
   created_at?: string | null;
 };
 
+export type LearningRule = {
+  id: number;
+  scope: string;
+  side: string;
+  feature_key: string;
+  feature_value: string;
+  penalty: number;
+  observations: number;
+  wins: number;
+  losses: number;
+  total_profit: number;
+  last_reason?: string | null;
+  updated_at?: string | null;
+};
+
 export type ActionMessage = {
   ok: boolean;
   message: string;

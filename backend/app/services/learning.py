@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,7 @@ class LearningAssessment:
 class LearningService:
     block_threshold = 2.5
     warn_threshold = 1.25
+    max_penalty = 5.0
 
     def entry_context(self, coin: MarketCoin, signal: str, reasons: list[str]) -> dict[str, Any]:
         atr_percent = self._atr_percent(float(coin.atr), float(coin.price))
@@ -48,7 +50,8 @@ class LearningService:
             rules = await self._rules_for(db, scope, side, features)
             for rule in rules:
                 if rule.penalty > 0:
-                    total_penalty += rule.penalty
+                    weight = 1.0 if scope == "GLOBAL" else 1.25
+                    total_penalty += rule.penalty * weight
                     matched.append(f"{rule.feature_key}={rule.feature_value}:{rule.penalty:.2f}")
         if total_penalty >= self.block_threshold:
             return LearningAssessment(False, round(total_penalty, 2), f"learning guard blocked similar losing setup ({', '.join(matched[:4])})")
@@ -75,19 +78,6 @@ class LearningService:
     ) -> list[LearningRule]:
         if not features:
             return []
-        clauses = [
-            (LearningRule.feature_key == key) & (LearningRule.feature_value == value)
-            for key, value in features
-        ]
-        result = await db.execute(
-            select(LearningRule).where(
-                LearningRule.scope == scope,
-                LearningRule.side == side,
-                *clauses[:1],
-            )
-        )
-        if len(clauses) == 1:
-            return list(result.scalars().all())
         keys = {key for key, _ in features}
         values = {value for _, value in features}
         result = await db.execute(
@@ -131,7 +121,7 @@ class LearningService:
         statement = statement.on_conflict_do_update(
             constraint="uq_learning_rule",
             set_={
-                "penalty": LearningRule.penalty + penalty_delta,
+                "penalty": func.greatest(0, func.least(self.max_penalty, LearningRule.penalty + penalty_delta)),
                 "observations": LearningRule.observations + 1,
                 "wins": LearningRule.wins + (0 if loss else 1),
                 "losses": LearningRule.losses + (1 if loss else 0),
