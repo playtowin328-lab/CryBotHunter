@@ -4,20 +4,22 @@
 
 :root {
   color-scheme: dark;
-  --bg: #07090f;
-  --bg-2: #0b1017;
-  --panel: rgba(15, 20, 28, 0.84);
-  --panel-strong: rgba(19, 26, 36, 0.94);
-  --line: rgba(126, 238, 255, 0.16);
-  --line-strong: rgba(126, 238, 255, 0.34);
+  --bg: #03132f;
+  --bg-2: #06265c;
+  --panel: rgba(7, 27, 63, 0.82);
+  --panel-strong: rgba(8, 34, 76, 0.95);
+  --line: rgba(125, 211, 252, 0.2);
+  --line-strong: rgba(125, 211, 252, 0.4);
   --text: #f6fbff;
-  --muted: #93a7b7;
-  --cyan: #34d3ff;
-  --mint: #36f2a2;
-  --amber: #f7c948;
+  --muted: #a9c3d8;
+  --cyan: #5ee7ff;
+  --mint: #48f5a4;
+  --amber: #ffd166;
   --rose: #ff4f7b;
-  --violet: #a78bfa;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  --violet: #8bb6ff;
+  --coin: #ffd166;
+  --coin-deep: #d69b2d;
+  --shadow: 0 24px 70px rgba(0, 10, 40, 0.48);
 }
 
 * {
@@ -29,10 +31,12 @@ body {
   min-width: 320px;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background:
-    linear-gradient(90deg, rgba(52, 211, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(54, 242, 162, 0.04) 1px, transparent 1px),
-    linear-gradient(135deg, #07090f 0%, #111827 42%, #10120f 100%);
-  background-size: 42px 42px, 42px 42px, auto;
+    radial-gradient(circle at 16% 8%, rgba(94, 231, 255, 0.28), transparent 30%),
+    radial-gradient(circle at 82% 14%, rgba(255, 209, 102, 0.22), transparent 24%),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.07) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(72, 245, 164, 0.05) 1px, transparent 1px),
+    linear-gradient(135deg, #03132f 0%, #062b6f 46%, #021125 100%);
+  background-size: auto, auto, 42px 42px, 42px 42px, auto;
   color: var(--text);
 }
 
@@ -42,10 +46,32 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(115deg, rgba(52, 211, 255, 0.16), transparent 28%),
-    linear-gradient(250deg, rgba(247, 201, 72, 0.12), transparent 32%),
-    repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 255, 255, 0.025) 78px 80px);
-  opacity: 0.72;
+    radial-gradient(circle at 12% 72%, rgba(255, 209, 102, 0.16) 0 38px, transparent 40px),
+    radial-gradient(circle at 86% 32%, rgba(255, 209, 102, 0.16) 0 28px, transparent 30px),
+    radial-gradient(circle at 76% 78%, rgba(72, 245, 164, 0.15) 0 22px, transparent 24px),
+    linear-gradient(115deg, rgba(94, 231, 255, 0.16), transparent 28%),
+    linear-gradient(250deg, rgba(255, 209, 102, 0.12), transparent 32%),
+    repeating-linear-gradient(90deg, transparent 0 78px, rgba(255, 255, 255, 0.026) 78px 80px);
+  opacity: 0.86;
+}
+
+body::after {
+  content: "$    +    $    +    $";
+  position: fixed;
+  right: -30px;
+  bottom: 28px;
+  width: 520px;
+  height: 190px;
+  pointer-events: none;
+  color: rgba(255, 209, 102, 0.42);
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: 0;
+  transform: rotate(-14deg);
+  text-shadow:
+    0 0 24px rgba(255, 209, 102, 0.34),
+    0 0 46px rgba(72, 245, 164, 0.18);
+  opacity: 0.78;
 }
 
 button, input, select {
@@ -64,17 +90,19 @@ button {
 .auth-shell {
   @apply flex min-h-screen items-center justify-center px-5 text-white;
   background:
-    linear-gradient(90deg, rgba(52, 211, 255, 0.08) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(247, 201, 72, 0.06) 1px, transparent 1px),
-    linear-gradient(145deg, #05070b 0%, #111827 48%, #14100a 100%);
-  background-size: 34px 34px, 34px 34px, auto;
+    radial-gradient(circle at 24% 18%, rgba(94, 231, 255, 0.24), transparent 30%),
+    radial-gradient(circle at 78% 28%, rgba(255, 209, 102, 0.22), transparent 24%),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.09) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(72, 245, 164, 0.06) 1px, transparent 1px),
+    linear-gradient(145deg, #03132f 0%, #06327a 50%, #021125 100%);
+  background-size: auto, auto, 34px 34px, 34px 34px, auto;
 }
 
 .auth-panel {
   position: relative;
   overflow: hidden;
   @apply flex w-full max-w-md flex-col gap-4 rounded-md border p-6;
-  background: linear-gradient(160deg, rgba(16, 24, 35, 0.94), rgba(10, 14, 20, 0.94));
+  background: linear-gradient(160deg, rgba(8, 38, 86, 0.94), rgba(3, 14, 34, 0.94));
   border-color: var(--line-strong);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -85,8 +113,9 @@ button {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, transparent 0 36%, rgba(52, 211, 255, 0.12) 36% 37%, transparent 37%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 34%);
+    radial-gradient(circle at 82% 22%, rgba(255, 209, 102, 0.22) 0 42px, transparent 44px),
+    linear-gradient(90deg, transparent 0 36%, rgba(94, 231, 255, 0.14) 36% 37%, transparent 37%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 34%);
 }
 
 .auth-panel > * {
@@ -109,10 +138,27 @@ button {
   color: var(--text);
 }
 
+.app-shell::before {
+  content: "";
+  position: fixed;
+  left: 5vw;
+  top: 132px;
+  width: min(820px, 76vw);
+  height: 260px;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, transparent 8%, rgba(72, 245, 164, 0.28) 8% 9%, transparent 9% 28%, rgba(72, 245, 164, 0.32) 28% 29%, transparent 29% 52%, rgba(255, 209, 102, 0.34) 52% 53%, transparent 53%),
+    radial-gradient(circle at 8% 78%, rgba(72, 245, 164, 0.45) 0 5px, transparent 7px),
+    radial-gradient(circle at 28% 56%, rgba(72, 245, 164, 0.45) 0 5px, transparent 7px),
+    radial-gradient(circle at 52% 34%, rgba(255, 209, 102, 0.5) 0 5px, transparent 7px),
+    radial-gradient(circle at 78% 16%, rgba(94, 231, 255, 0.45) 0 5px, transparent 7px);
+  opacity: 0.32;
+}
+
 .topbar {
   @apply sticky top-0 z-20 border-b backdrop-blur;
   border-color: var(--line);
-  background: rgba(7, 9, 15, 0.84);
+  background: rgba(3, 19, 47, 0.86);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
 }
 
@@ -126,8 +172,8 @@ button {
 }
 
 .brand-mark svg {
-  color: var(--mint);
-  filter: drop-shadow(0 0 10px rgba(54, 242, 162, 0.38));
+  color: var(--coin);
+  filter: drop-shadow(0 0 12px rgba(255, 209, 102, 0.48));
 }
 
 .nav-group, .action-row {
@@ -141,8 +187,8 @@ button {
 
 .btn {
   @apply inline-flex h-10 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50;
-  border-color: rgba(126, 238, 255, 0.22);
-  background: linear-gradient(180deg, rgba(22, 31, 44, 0.98), rgba(12, 17, 25, 0.98));
+  border-color: rgba(125, 211, 252, 0.24);
+  background: linear-gradient(180deg, rgba(9, 42, 92, 0.98), rgba(4, 18, 43, 0.98));
   color: var(--text);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
@@ -154,8 +200,8 @@ button {
 
 .btn.primary {
   border-color: rgba(54, 242, 162, 0.5);
-  background: linear-gradient(135deg, #0fb981, #00a6d6 58%, #7c3aed);
-  color: #041014;
+  background: linear-gradient(135deg, #48f5a4, #5ee7ff 46%, #ffd166);
+  color: #021125;
   font-weight: 800;
 }
 
@@ -190,9 +236,9 @@ button {
 }
 
 .nav.active {
-  background: linear-gradient(135deg, rgba(52, 211, 255, 0.18), rgba(54, 242, 162, 0.12));
+  background: linear-gradient(135deg, rgba(94, 231, 255, 0.22), rgba(255, 209, 102, 0.14));
   color: var(--text);
-  box-shadow: inset 0 -2px 0 var(--mint);
+  box-shadow: inset 0 -2px 0 var(--coin);
 }
 
 .header {
@@ -201,9 +247,10 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
-    linear-gradient(135deg, rgba(52, 211, 255, 0.13), transparent 34%),
-    linear-gradient(270deg, rgba(247, 201, 72, 0.1), transparent 38%),
-    rgba(10, 15, 23, 0.72);
+    radial-gradient(circle at 88% 22%, rgba(255, 209, 102, 0.18) 0 54px, transparent 56px),
+    linear-gradient(135deg, rgba(94, 231, 255, 0.17), transparent 34%),
+    linear-gradient(270deg, rgba(255, 209, 102, 0.14), transparent 38%),
+    rgba(5, 29, 70, 0.74);
   box-shadow: var(--shadow);
 }
 
@@ -242,7 +289,7 @@ button {
   border-color: var(--line);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent),
-    rgba(13, 19, 28, 0.86);
+    rgba(5, 27, 65, 0.86);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
@@ -258,6 +305,7 @@ button {
 
 .metric.good strong {
   color: var(--mint);
+  text-shadow: 0 0 18px rgba(72, 245, 164, 0.24);
 }
 
 .metric.bad strong {
@@ -271,7 +319,7 @@ button {
 .status-item {
   @apply flex items-center gap-2 rounded-md border px-4 py-3 text-sm;
   border-color: var(--line);
-  background: rgba(13, 19, 28, 0.82);
+  background: rgba(5, 27, 65, 0.82);
   color: var(--muted);
 }
 
@@ -308,7 +356,7 @@ button {
   @apply border-b px-4 py-3 text-sm font-semibold;
   border-color: var(--line);
   background:
-    linear-gradient(90deg, rgba(52, 211, 255, 0.12), transparent 48%),
+    linear-gradient(90deg, rgba(94, 231, 255, 0.14), rgba(255, 209, 102, 0.06) 48%, transparent 72%),
     rgba(255, 255, 255, 0.025);
   color: var(--text);
 }
@@ -323,8 +371,8 @@ table {
 
 th {
   @apply px-4 py-3 text-left text-xs font-semibold uppercase;
-  background: rgba(7, 11, 17, 0.72);
-  color: #8bdff2;
+  background: rgba(3, 19, 47, 0.78);
+  color: #9ae8ff;
 }
 
 td {
@@ -349,9 +397,9 @@ tbody tr:hover {
 }
 
 .score {
-  background: rgba(52, 211, 255, 0.12);
-  color: var(--cyan);
-  border-color: rgba(52, 211, 255, 0.28);
+  background: rgba(255, 209, 102, 0.14);
+  color: var(--coin);
+  border-color: rgba(255, 209, 102, 0.3);
 }
 
 .pill.buy {
