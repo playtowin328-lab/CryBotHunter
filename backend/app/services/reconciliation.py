@@ -8,8 +8,8 @@ from app.services.exchange import ExchangeClient
 
 
 class OrderReconciliationService:
-    def __init__(self) -> None:
-        self.exchange = ExchangeClient()
+    def __init__(self, exchange: ExchangeClient | None = None) -> None:
+        self.exchange = exchange or ExchangeClient()
 
     async def reconcile(self, db: AsyncSession, stale_minutes: int = 5) -> dict[str, int]:
         orders = (

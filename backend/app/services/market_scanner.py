@@ -11,8 +11,9 @@ from app.services.market_regime import MarketRegimeDetector
 
 
 class MarketScanner:
-    def __init__(self) -> None:
+    def __init__(self, exchange: ExchangeClient | None = None) -> None:
         self.regime_detector = MarketRegimeDetector()
+        self.exchange = exchange or ExchangeClient()
 
     async def scan(self, symbols: list[str] | None = None) -> list[MarketCoin]:
         symbols = symbols or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
@@ -25,11 +26,10 @@ class MarketScanner:
         return [self._coin_from_row(row) for row in rows]
 
     async def _scan_ccxt(self, symbols: list[str]) -> list[MarketCoin]:
-        exchange = ExchangeClient()
-        tickers = await exchange.fetch_tickers(symbols)
+        tickers = await self.exchange.fetch_tickers(symbols)
         coins: list[MarketCoin] = []
         for symbol in symbols:
-            candles = await exchange.fetch_ohlcv(symbol, timeframe="1h", limit=250)
+            candles = await self.exchange.fetch_ohlcv(symbol, timeframe="1h", limit=250)
             if len(candles) < 200:
                 continue
             frame = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume"])

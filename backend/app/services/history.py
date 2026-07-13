@@ -12,6 +12,9 @@ from app.services.exchange import ExchangeClient
 
 
 class HistoricalDataService:
+    def __init__(self, exchange: ExchangeClient | None = None) -> None:
+        self.exchange = exchange or ExchangeClient()
+
     async def ingest_many(self, db: AsyncSession, symbols: list[str], timeframes: list[str], limit: int = 500) -> dict[str, int]:
         inserted: dict[str, int] = {}
         for symbol in symbols:
@@ -83,7 +86,7 @@ class HistoricalDataService:
 
     async def _fetch(self, symbol: str, timeframe: str, limit: int) -> list[dict]:
         if get_settings().market_data_mode.lower() == "ccxt":
-            raw = await ExchangeClient().fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            raw = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
             return [
                 {
                     "timestamp": datetime.fromtimestamp(item[0] / 1000, tz=timezone.utc),

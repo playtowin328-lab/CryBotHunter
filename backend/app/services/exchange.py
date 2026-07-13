@@ -4,12 +4,32 @@ from typing import Any
 import ccxt
 
 from app.core.config import get_settings
+from app.core.security import decrypt_secret
+from app.models.entities import UserSettings
 
 
 class ExchangeClient:
-    def __init__(self, exchange: str | None = None) -> None:
+    def __init__(
+        self,
+        exchange: str | None = None,
+        api_key: str | None = None,
+        secret_key: str | None = None,
+        passphrase: str | None = None,
+    ) -> None:
         self.settings = get_settings()
         self.exchange = exchange or self.settings.default_exchange
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.passphrase = passphrase
+
+    @classmethod
+    def from_user_settings(cls, settings: UserSettings) -> "ExchangeClient":
+        return cls(
+            exchange=settings.exchange,
+            api_key=decrypt_secret(settings.api_key_encrypted),
+            secret_key=decrypt_secret(settings.secret_key_encrypted),
+            passphrase=decrypt_secret(settings.passphrase_encrypted),
+        )
 
     async def get_balance(self) -> dict[str, float]:
         if self.settings.paper_trading or not self.settings.live_trading_enabled:
@@ -55,17 +75,22 @@ class ExchangeClient:
         return await asyncio.to_thread(client.fetch_order, order_id, symbol)
 
     def _client(self, authenticated: bool) -> ccxt.Exchange:
-        exchange_class = getattr(ccxt, self.exchange)
+        exchange_class = getattr(ccxt, self.exchange, None)
+        if exchange_class is None:
+            raise RuntimeError(f"Unsupported exchange: {self.exchange}")
         params: dict[str, Any] = {"enableRateLimit": True, "options": {"defaultType": "swap"}}
         if authenticated:
-            if not self.settings.exchange_api_key or not self.settings.exchange_secret_key:
+            api_key = self.api_key or self.settings.exchange_api_key
+            secret_key = self.secret_key or self.settings.exchange_secret_key
+            passphrase = self.passphrase or self.settings.exchange_passphrase
+            if not api_key or not secret_key:
                 raise RuntimeError("Exchange API credentials are not configured")
-            params["apiKey"] = self.settings.exchange_api_key
-            params["secret"] = self.settings.exchange_secret_key
-            if self.settings.exchange_passphrase:
-                params["password"] = self.settings.exchange_passphrase
+            params["apiKey"] = api_key
+            params["secret"] = secret_key
+            if passphrase:
+                params["password"] = passphrase
         client = exchange_class(params)
-        if self.settings.exchange_sandbox_enabled and hasattr(client, "set_sandbox_mode"):
+        if authenticated and self.settings.exchange_sandbox_enabled and hasattr(client, "set_sandbox_mode"):
             client.set_sandbox_mode(True)
         return client
 

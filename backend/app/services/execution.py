@@ -8,9 +8,9 @@ from app.services.exchange import ExchangeClient
 
 
 class ExecutionService:
-    def __init__(self) -> None:
+    def __init__(self, exchange: ExchangeClient | None = None) -> None:
         self.settings = get_settings()
-        self.exchange = ExchangeClient()
+        self.exchange = exchange or ExchangeClient()
 
     async def execute_market(
         self,

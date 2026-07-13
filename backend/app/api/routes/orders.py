@@ -4,8 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
 from app.db.session import get_db
-from app.models.entities import Order, User
+from app.models.entities import Order, User, UserSettings
 from app.schemas.dto import OrderOut
+from app.services.exchange import ExchangeClient
 from app.services.reconciliation import OrderReconciliationService
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -18,5 +19,7 @@ async def list_orders(_: User = Depends(current_user), db: AsyncSession = Depend
 
 
 @router.post("/reconcile")
-async def reconcile_orders(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> dict[str, int]:
-    return await OrderReconciliationService().reconcile(db)
+async def reconcile_orders(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> dict[str, int]:
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
+    exchange = ExchangeClient.from_user_settings(user_settings)
+    return await OrderReconciliationService(exchange).reconcile(db)

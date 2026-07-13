@@ -17,12 +17,12 @@ from app.services.telegram_bot import TelegramNotifier
 
 
 class TradingEngine:
-    def __init__(self) -> None:
-        self.scanner = MarketScanner()
+    def __init__(self, exchange: ExchangeClient | None = None) -> None:
+        self.exchange = exchange or ExchangeClient()
+        self.scanner = MarketScanner(self.exchange)
         self.strategy = StrategyCore()
         self.risk = RiskManager()
-        self.exchange = ExchangeClient()
-        self.execution = ExecutionService()
+        self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
         self.agents = AgentOrchestrator()
         self.telegram = TelegramNotifier()

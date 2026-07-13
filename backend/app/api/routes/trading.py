@@ -13,6 +13,7 @@ from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
 from app.services.performance_guard import PerformanceGuardService
 from app.services.risk_manager import RiskSettings
+from app.services.exchange import ExchangeClient
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter(prefix="/trading", tags=["trading"])
@@ -43,15 +44,17 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
     async with RedisLockManager().lock("trading-run", ttl_seconds=55) as acquired:
         if not acquired:
             return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
-        return await TradingEngine().run_once(db, risk_settings)
+        exchange = ExchangeClient.from_user_settings(user_settings)
+        return await TradingEngine(exchange).run_once(db, risk_settings)
 
 
 @router.post("/tick", response_model=TradingTickOut)
-async def tick(_: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingTickOut:
+async def tick(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingTickOut:
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
     async with RedisLockManager().lock("trading-tick", ttl_seconds=55) as acquired:
         if not acquired:
             return TradingTickOut(checked=0, closed=0, updated=[])
-        return await TradingEngine().manage_open_positions(db)
+        return await TradingEngine(ExchangeClient.from_user_settings(user_settings)).manage_open_positions(db)
 
 
 @router.get("/status", response_model=SystemStatusOut)
@@ -117,10 +120,11 @@ async def run_backtest(
     symbol: str = "BTC/USDT",
     timeframe: str = "1h",
     limit: int = 500,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BacktestOut:
-    history = HistoricalDataService()
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
+    history = HistoricalDataService(ExchangeClient.from_user_settings(user_settings))
     candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
     if len(candles) < 220:
         await history.ingest(db, symbol=symbol, timeframe=timeframe, limit=min(limit, 1000))
@@ -137,14 +141,15 @@ async def run_walk_forward_backtest(
     train_size: int = 300,
     test_size: int = 120,
     step_size: int = 120,
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ) -> WalkForwardOut:
+    user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
     bounded_limit = max(500, min(limit, 3000))
     train_size = max(220, min(train_size, 1000))
     test_size = max(80, min(test_size, 500))
     step_size = max(40, min(step_size, test_size))
-    history = HistoricalDataService()
+    history = HistoricalDataService(ExchangeClient.from_user_settings(user_settings))
     candles = await history.load(db, symbol=symbol, timeframe=timeframe, limit=bounded_limit)
     if len(candles) < train_size + test_size:
         await history.ingest(db, symbol=symbol, timeframe=timeframe, limit=bounded_limit)

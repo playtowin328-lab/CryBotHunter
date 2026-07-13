@@ -734,18 +734,18 @@ function SettingsView() {
       {message && <Alert tone={message.ok ? "good" : "danger"} text={message.message} />}
       <div className="settings-grid">
         <div className="panel-block">
-          <div className="table-title">Подключение Binance</div>
+          <div className="table-title">Подключение биржи</div>
           <p className="muted">
-            Здесь подключается реальная биржа. В Binance создай API key с доступом к Futures/Spot, вставь API Key и Secret Key, затем нажми «Сохранить».
+            Здесь подключается реальная биржа. Создай API key на выбранной бирже с доступом к торговле, вставь API Key и Secret Key, затем нажми «Сохранить».
           </p>
           <Alert
             tone={settings.api_key_masked && settings.secret_key_masked ? "good" : "danger"}
-            text={settings.api_key_masked && settings.secret_key_masked ? `Binance подключен: ${settings.api_key_masked}` : "Binance еще не подключен: добавь API Key и Secret Key"}
+            text={settings.api_key_masked && settings.secret_key_masked ? `${exchangeLabel(settings.exchange)} подключена: ${settings.api_key_masked}` : `${exchangeLabel(settings.exchange)} еще не подключена: добавь API Key и Secret Key`}
           />
-          <label className="field">Биржа<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
-          <label className="field">Binance API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder={settings.api_key_masked ?? "Вставь API Key из Binance"} /></label>
-          <label className="field">Binance Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder={settings.secret_key_masked ?? "Вставь Secret Key из Binance"} /></label>
-          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder={settings.passphrase_masked ?? "Для Binance не нужна"} /></label>
+          <label className="field">Биржа<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option><option value="okx">OKX</option><option value="kucoin">KuCoin</option><option value="gateio">Gate.io</option></select></label>
+          <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder={settings.api_key_masked ?? `Вставь API Key из ${exchangeLabel(settings.exchange)}`} /></label>
+          <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder={settings.secret_key_masked ?? `Вставь Secret Key из ${exchangeLabel(settings.exchange)}`} /></label>
+          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder={settings.passphrase_masked ?? "Нужна для OKX/KuCoin, для Binance/Gate.io обычно не нужна"} /></label>
         </div>
         <div className="panel-block">
           <div className="table-title">Контроль риска</div>
@@ -805,6 +805,17 @@ function EmptyRow(props: { cols: number; text: string }) {
 
 function fmt(value: number | undefined) {
   return Number(value ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+function exchangeLabel(value: string) {
+  const labels: Record<string, string> = {
+    binance: "Binance",
+    bybit: "Bybit",
+    okx: "OKX",
+    kucoin: "KuCoin",
+    gateio: "Gate.io"
+  };
+  return labels[value] ?? value;
 }
 
 function translateAction(value: string) {

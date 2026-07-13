@@ -20,7 +20,7 @@ class LoginRequest(BaseModel):
 
 
 class SettingsIn(BaseModel):
-    exchange: Literal["binance", "bybit", "okx", "kucoin"] = "binance"
+    exchange: Literal["binance", "bybit", "okx", "kucoin", "gateio"] = "binance"
     api_key: str | None = None
     secret_key: str | None = None
     passphrase: str | None = None
