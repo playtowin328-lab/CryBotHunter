@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     strategy_optimizer_min_profit_factor: float = 1.05
     strategy_optimizer_min_trades: int = 3
     strategy_optimizer_max_age_days: int = 14
+    strategy_optimizer_worker_enabled: bool = True
+    strategy_optimizer_loop_seconds: int = 21600
+    strategy_optimizer_refresh_hours: int = 24
+    strategy_optimizer_limit: int = 800
+    strategy_optimizer_top_n: int = 5
     candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500

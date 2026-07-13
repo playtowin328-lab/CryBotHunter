@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.models.entities import StrategyOptimization
 from app.services.optimizer import StrategyOptimizerService
 from app.services.risk_manager import RiskSettings
@@ -82,3 +84,34 @@ def test_optimizer_rejects_stale_optimization(monkeypatch):
     stale = optimization(created_at=datetime.now(timezone.utc) - timedelta(days=30))
 
     assert service._is_fresh(stale) is False
+
+
+@pytest.mark.asyncio
+async def test_optimizer_refreshes_missing_or_stale_results(monkeypatch):
+    service = StrategyOptimizerService()
+    monkeypatch.setattr(service.settings, "strategy_optimizer_refresh_hours", 24)
+
+    async def missing_latest(_db, _symbol, _timeframe):
+        return None
+
+    async def stale_latest(_db, _symbol, _timeframe):
+        return optimization(created_at=datetime.now(timezone.utc) - timedelta(hours=25))
+
+    monkeypatch.setattr(service, "latest_for", missing_latest)
+    assert await service.needs_refresh(None, "BTC/USDT", "1h") is True
+
+    monkeypatch.setattr(service, "latest_for", stale_latest)
+    assert await service.needs_refresh(None, "BTC/USDT", "1h") is True
+
+
+@pytest.mark.asyncio
+async def test_optimizer_skips_fresh_results(monkeypatch):
+    service = StrategyOptimizerService()
+    monkeypatch.setattr(service.settings, "strategy_optimizer_refresh_hours", 24)
+
+    async def fresh_latest(_db, _symbol, _timeframe):
+        return optimization(created_at=datetime.now(timezone.utc) - timedelta(hours=2))
+
+    monkeypatch.setattr(service, "latest_for", fresh_latest)
+
+    assert await service.needs_refresh(None, "BTC/USDT", "1h") is False

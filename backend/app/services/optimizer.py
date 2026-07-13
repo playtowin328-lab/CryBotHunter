@@ -81,6 +81,25 @@ class StrategyOptimizerService:
         result = await db.execute(select(StrategyOptimization).order_by(StrategyOptimization.created_at.desc()).limit(limit))
         return list(result.scalars().all())
 
+    async def latest_for(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> StrategyOptimization | None:
+        result = await db.execute(
+            select(StrategyOptimization)
+            .where(StrategyOptimization.symbol == symbol, StrategyOptimization.timeframe == timeframe)
+            .order_by(StrategyOptimization.created_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
+
+    async def needs_refresh(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> bool:
+        latest = await self.latest_for(db, symbol, timeframe)
+        if not latest or not latest.created_at:
+            return True
+        created_at = latest.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        age_hours = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
+        return age_hours >= self.settings.strategy_optimizer_refresh_hours
+
     async def best_for(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> StrategyOptimization | None:
         if not self.settings.strategy_optimizer_apply_enabled:
             return None
