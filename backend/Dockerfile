@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["sh", "-c", "alembic upgrade head && if [ \"$APP_PROCESS\" = \"telegram\" ]; then python -m app.telegram_worker; elif [ \"$APP_PROCESS\" = \"trader\" ]; then python -m app.trader_worker; elif [ \"$APP_PROCESS\" = \"candles\" ]; then python -m app.candle_worker; elif [ \"$APP_PROCESS\" = \"optimizer\" ]; then python -m app.optimizer_worker; else uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}; fi"]
+CMD ["sh", "entrypoint.sh"]
