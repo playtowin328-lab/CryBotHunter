@@ -49,8 +49,8 @@ function App() {
         <section className="auth-panel">
           <div>
             <div className="brand-mark"><Bot size={22} /> CryBotHunter</div>
-            <h1>Crypto AI Trader</h1>
-            <p>Secure trading control panel with paper mode, risk checks and Telegram operations.</p>
+            <h1>Крипто AI Трейдер</h1>
+            <p>Панель управления торговым ботом с paper-режимом, проверками риска и Telegram-операциями.</p>
           </div>
           {error && <Alert tone="danger" text={error} />}
           <label className="field">
@@ -58,12 +58,12 @@ function App() {
             <input value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
           <label className="field">
-            Password
+            Пароль
             <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </label>
           <div className="action-row">
-            <button className="btn primary flex-1" onClick={() => login("login")}><KeyRound size={16} /> Login</button>
-            <button className="btn flex-1" onClick={() => login("register")}>Register</button>
+            <button className="btn primary flex-1" onClick={() => login("login")}><KeyRound size={16} /> Войти</button>
+            <button className="btn flex-1" onClick={() => login("register")}>Регистрация</button>
           </div>
         </section>
       </main>
@@ -76,12 +76,12 @@ function App() {
         <div className="topbar-inner">
           <div className="brand-mark"><Bot size={20} /> CryBotHunter</div>
           <div className="nav-group">
-            <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon={<Activity size={16} />} label="Dashboard" />
-            <NavButton active={view === "market"} onClick={() => setView("market")} icon={<BarChart3 size={16} />} label="Market" />
-            <NavButton active={view === "agents"} onClick={() => setView("agents")} icon={<Bot size={16} />} label="Agents" />
-            <NavButton active={view === "logs"} onClick={() => setView("logs")} icon={<Terminal size={16} />} label="Logs" />
-            <NavButton active={view === "settings"} onClick={() => setView("settings")} icon={<Settings size={16} />} label="Settings" />
-            <button className="icon-btn" onClick={logout} title="Logout"><LogOut size={16} /></button>
+            <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon={<Activity size={16} />} label="Панель" />
+            <NavButton active={view === "market"} onClick={() => setView("market")} icon={<BarChart3 size={16} />} label="Рынок" />
+            <NavButton active={view === "agents"} onClick={() => setView("agents")} icon={<Bot size={16} />} label="Агенты" />
+            <NavButton active={view === "logs"} onClick={() => setView("logs")} icon={<Terminal size={16} />} label="Логи" />
+            <NavButton active={view === "settings"} onClick={() => setView("settings")} icon={<Settings size={16} />} label="Настройки" />
+            <button className="icon-btn" onClick={logout} title="Выйти"><LogOut size={16} /></button>
           </div>
         </div>
       </nav>
@@ -130,17 +130,17 @@ function AgentsView() {
 
   return (
     <section className="space-y-5">
-      <Header title="AI Agents" subtitle="Structured market and risk decisions with full audit trail">
-        <button className="btn primary" onClick={analyze} disabled={loading}><Bot size={16} /> {loading ? "Analyzing" : "Analyze BTC"}</button>
+      <Header title="AI-агенты" subtitle="Рыночные и риск-решения с полной историей проверок">
+        <button className="btn primary" onClick={analyze} disabled={loading}><Bot size={16} /> {loading ? "Анализирую" : "Анализ BTC"}</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       {analysis && (
         <div className="status-strip">
-          <StatusItem label="Final Action" value={analysis.final_action} good={analysis.approved} />
-          <StatusItem label="Confidence" value={`${fmt(analysis.final_confidence * 100)}%`} />
-          <StatusItem label="Consensus" value={`${fmt(analysis.consensus_score * 100)}%`} good={analysis.consensus_score >= 0.66} />
-          <StatusItem label="Market Agent" value={analysis.market.action} good={analysis.market.action !== "WAIT"} />
-          <StatusItem label="AI Advisor" value={analysis.llm?.action ?? "Off"} good={!analysis.llm || analysis.llm.action !== "WAIT"} />
+          <StatusItem label="Итоговое действие" value={translateAction(analysis.final_action)} good={analysis.approved} />
+          <StatusItem label="Уверенность" value={`${fmt(analysis.final_confidence * 100)}%`} />
+          <StatusItem label="Консенсус" value={`${fmt(analysis.consensus_score * 100)}%`} good={analysis.consensus_score >= 0.66} />
+          <StatusItem label="Рыночный агент" value={translateAction(analysis.market.action)} good={analysis.market.action !== "WAIT"} />
+          <StatusItem label="AI-советник" value={analysis.llm ? translateAction(analysis.llm.action) : "Выкл"} good={!analysis.llm || analysis.llm.action !== "WAIT"} />
         </div>
       )}
       {analysis && (
@@ -151,9 +151,9 @@ function AgentsView() {
             <AgentCard decision={analysis.risk} />
           </div>
           <div className="table-wrap">
-            <div className="table-title">Trade Committee</div>
+            <div className="table-title">Торговый комитет</div>
             <table>
-              <thead><tr><th>Agent</th><th>Vote</th><th>Confidence</th><th>Reason</th></tr></thead>
+              <thead><tr><th>Агент</th><th>Голос</th><th>Уверенность</th><th>Причина</th></tr></thead>
               <tbody>
                 {analysis.committee.map((item) => (
                   <tr key={item.agent_name}>
@@ -163,16 +163,16 @@ function AgentsView() {
                     <td>{item.rationale}</td>
                   </tr>
                 ))}
-                {!analysis.committee.length && <EmptyRow cols={4} text="No committee votes yet" />}
+                {!analysis.committee.length && <EmptyRow cols={4} text="Голосов комитета пока нет" />}
               </tbody>
             </table>
           </div>
         </>
       )}
       <div className="table-wrap">
-        <div className="table-title">Recent Agent Decisions</div>
+        <div className="table-title">Последние решения агентов</div>
         <table>
-          <thead><tr><th>Agent</th><th>Symbol</th><th>Action</th><th>Confidence</th><th>Rationale</th></tr></thead>
+          <thead><tr><th>Агент</th><th>Пара</th><th>Действие</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
           <tbody>
             {decisions.map((item, index) => (
               <tr key={`${item.agent_name}-${item.symbol}-${index}`}>
@@ -183,7 +183,7 @@ function AgentsView() {
                 <td>{item.rationale}</td>
               </tr>
             ))}
-            {!decisions.length && <EmptyRow cols={5} text="No agent decisions yet" />}
+            {!decisions.length && <EmptyRow cols={5} text="Решений агентов пока нет" />}
           </tbody>
         </table>
       </div>
@@ -197,7 +197,7 @@ function AgentCard({ decision }: { decision: AgentDecision }) {
       <div className="table-title">{decision.agent_name}</div>
       <div className="agent-card-body">
         <ActionPill action={decision.action} />
-        <Metric label="Confidence" value={`${fmt(decision.confidence * 100)}%`} />
+        <Metric label="Уверенность" value={`${fmt(decision.confidence * 100)}%`} />
         <p className="muted">{decision.rationale}</p>
       </div>
     </div>
@@ -206,7 +206,7 @@ function AgentCard({ decision }: { decision: AgentDecision }) {
 
 function ActionPill({ action }: { action: AgentDecision["action"] }) {
   const tone = action === "BUY" || action === "ALLOW" ? "buy" : action === "SELL" || action === "BLOCK" ? "sell" : "";
-  return <span className={`pill ${tone}`}>{action}</span>;
+  return <span className={`pill ${tone}`}>{translateAction(action)}</span>;
 }
 
 function NavButton(props: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
@@ -348,71 +348,71 @@ function DashboardView() {
 
   return (
     <section className="space-y-5">
-      <Header title="Dashboard" subtitle="Portfolio, risk state and bot execution summary">
-        <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
-        <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Backtest BTC</button>
+      <Header title="Панель" subtitle="Портфель, риск-состояние и сводка работы бота">
+        <button className="btn" onClick={load}><RefreshCw size={16} /> Обновить</button>
+        <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Бэктест BTC</button>
         <button className="btn" onClick={runWalkForward} disabled={loading}><BarChart3 size={16} /> Walk-forward</button>
-        <button className="btn" onClick={ingestBatchHistory} disabled={loading}><RefreshCw size={16} /> Ingest candles</button>
-        <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Optimize</button>
-        <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Manage positions</button>
-        <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Running" : "Run scan"}</button>
+        <button className="btn" onClick={ingestBatchHistory} disabled={loading}><RefreshCw size={16} /> Загрузить свечи</button>
+        <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Оптимизировать</button>
+        <button className="btn" onClick={managePositions} disabled={loading}><Activity size={16} /> Проверить позиции</button>
+        <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Запуск" : "Сканировать"}</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       <div className="status-strip">
-        <StatusItem label="Mode" value={status?.paper_trading ? "Paper trading" : "Live trading"} good={status?.paper_trading ?? true} />
-        <StatusItem label="Exchange" value={status?.exchange ?? "-"} />
-        <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} chat` : "Disabled"} good={Boolean(status?.telegram_enabled)} />
-        <StatusItem label="Open positions" value={String(status?.open_positions ?? 0)} />
+        <StatusItem label="Режим" value={status?.paper_trading ? "Paper-торговля" : "Live-торговля"} good={status?.paper_trading ?? true} />
+        <StatusItem label="Биржа" value={status?.exchange ?? "-"} />
+        <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} чат` : "Отключен"} good={Boolean(status?.telegram_enabled)} />
+        <StatusItem label="Открытые позиции" value={String(status?.open_positions ?? 0)} />
         <StatusItem
-          label="Exposure"
+          label="Экспозиция"
           value={`${fmt(status?.gross_exposure_percent)}%`}
           good={(status?.gross_exposure_percent ?? 0) <= (status?.max_gross_exposure_percent ?? 300)}
         />
-        <StatusItem label="Committee" value={status?.ai_committee_enabled ? `${fmt((status.ai_committee_min_consensus ?? 0) * 100)}%` : "Off"} good={status?.ai_committee_enabled ?? true} />
-        <StatusItem label="Guard" value={guard?.allowed ? "Allowed" : "Blocked"} good={guard?.allowed ?? true} />
+        <StatusItem label="Комитет" value={status?.ai_committee_enabled ? `${fmt((status.ai_committee_min_consensus ?? 0) * 100)}%` : "Выкл"} good={status?.ai_committee_enabled ?? true} />
+        <StatusItem label="Защита" value={guard?.allowed ? "Разрешено" : "Заблокировано"} good={guard?.allowed ?? true} />
       </div>
       <div className="metric-grid">
-        <Metric label="Balance" value={`$${fmt(data?.balance)}`} />
-        <Metric label="PnL day" value={`$${fmt(data?.pnl_day)}`} tone={(data?.pnl_day ?? 0) >= 0 ? "good" : "bad"} />
-        <Metric label="PnL week" value={`$${fmt(data?.pnl_week)}`} />
+        <Metric label="Баланс" value={`$${fmt(data?.balance)}`} />
+        <Metric label="PnL за день" value={`$${fmt(data?.pnl_day)}`} tone={(data?.pnl_day ?? 0) >= 0 ? "good" : "bad"} />
+        <Metric label="PnL за неделю" value={`$${fmt(data?.pnl_week)}`} />
         <Metric label="Win Rate" value={`${fmt(data?.win_rate)}%`} />
-        <Metric label="Trades" value={String(data?.trades_count ?? 0)} />
+        <Metric label="Сделки" value={String(data?.trades_count ?? 0)} />
       </div>
       {run && (
         <div className="panel-block">
-          <div className="table-title">Last Run: scanned {run.scanned}, opened {run.opened}, skipped {run.skipped}</div>
+          <div className="table-title">Последний запуск: просканировано {run.scanned}, открыто {run.opened}, пропущено {run.skipped}</div>
           <DecisionList run={run} />
         </div>
       )}
       {tick && (
         <Alert
           tone={tick.closed > 0 ? "good" : "good"}
-          text={`Position manager checked ${tick.checked} position(s), closed ${tick.closed}, updated ${tick.updated.length}.`}
+          text={`Менеджер позиций проверил ${tick.checked}, закрыл ${tick.closed}, обновил ${tick.updated.length}.`}
         />
       )}
       <div className="two-col">
         <PositionsTable data={data} onChanged={load} />
         <div className="panel-block">
-          <div className="table-title">Backtest</div>
-          {historyResult && <p className="muted">Loaded {historyResult.inserted} new {historyResult.timeframe} candles for {historyResult.symbol}.</p>}
+          <div className="table-title">Бэктест</div>
+          {historyResult && <p className="muted">Загружено {historyResult.inserted} новых свечей {historyResult.timeframe} для {historyResult.symbol}.</p>}
           <div className="mini-grid">
             <Metric label="Win Rate" value={`${fmt(backtest?.win_rate)}%`} />
             <Metric label="Profit Factor" value={fmt(backtest?.profit_factor)} />
-            <Metric label="Trades" value={String(backtest?.trades_count ?? 0)} />
-            <Metric label="Total Profit" value={`$${fmt(backtest?.total_profit)}`} tone={(backtest?.total_profit ?? 0) >= 0 ? "good" : "bad"} />
-            <Metric label="Max Drawdown" value={`$${fmt(backtest?.max_drawdown)}`} tone="bad" />
-            <Metric label="Avg Profit" value={`$${fmt(backtest?.average_profit)}`} tone="good" />
+            <Metric label="Сделки" value={String(backtest?.trades_count ?? 0)} />
+            <Metric label="Общая прибыль" value={`$${fmt(backtest?.total_profit)}`} tone={(backtest?.total_profit ?? 0) >= 0 ? "good" : "bad"} />
+            <Metric label="Макс. просадка" value={`$${fmt(backtest?.max_drawdown)}`} tone="bad" />
+            <Metric label="Средняя прибыль" value={`$${fmt(backtest?.average_profit)}`} tone="good" />
           </div>
           {walkForward && (
             <>
               <div className="table-title mt-4">Walk-forward</div>
               <div className="mini-grid">
-                <Metric label="Windows" value={`${walkForward.profitable_windows}/${walkForward.window_count}`} />
-                <Metric label="WF Profit" value={`$${fmt(walkForward.total_profit)}`} tone={walkForward.total_profit >= 0 ? "good" : "bad"} />
-                <Metric label="Avg Window" value={`$${fmt(walkForward.average_window_profit)}`} />
-                <Metric label="Avg Win Rate" value={`${fmt(walkForward.average_win_rate)}%`} />
-                <Metric label="Avg PF" value={fmt(walkForward.average_profit_factor)} />
-                <Metric label="Worst DD" value={`$${fmt(walkForward.max_drawdown)}`} tone="bad" />
+                <Metric label="Окна" value={`${walkForward.profitable_windows}/${walkForward.window_count}`} />
+                <Metric label="WF прибыль" value={`$${fmt(walkForward.total_profit)}`} tone={walkForward.total_profit >= 0 ? "good" : "bad"} />
+                <Metric label="Среднее окно" value={`$${fmt(walkForward.average_window_profit)}`} />
+                <Metric label="Средний Win Rate" value={`${fmt(walkForward.average_win_rate)}%`} />
+                <Metric label="Средний PF" value={fmt(walkForward.average_profit_factor)} />
+                <Metric label="Худшая просадка" value={`$${fmt(walkForward.max_drawdown)}`} tone="bad" />
               </div>
             </>
           )}
@@ -428,11 +428,11 @@ function DashboardView() {
 function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: HistoryBatchIngest | null }) {
   return (
     <div className="table-wrap">
-      <div className="table-title">Dataset Readiness</div>
-      {batch && <p className="muted">Last batch inserted {Object.values(batch.inserted).reduce((sum, value) => sum + value, 0)} candle(s).</p>}
+      <div className="table-title">Готовность датасета</div>
+      {batch && <p className="muted">Последняя пачка добавила свечей: {Object.values(batch.inserted).reduce((sum, value) => sum + value, 0)}.</p>}
       <table>
         <thead>
-          <tr><th>Symbol</th><th>Timeframe</th><th>Candles</th><th>Coverage</th><th>Status</th><th>Last Candle</th></tr>
+          <tr><th>Пара</th><th>Таймфрейм</th><th>Свечи</th><th>Покрытие</th><th>Статус</th><th>Последняя свеча</th></tr>
         </thead>
         <tbody>
           {items.map((item) => (
@@ -441,11 +441,11 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
               <td>{item.timeframe}</td>
               <td>{item.candles.toLocaleString()}</td>
               <td>{fmt(item.coverage_percent)}%</td>
-              <td><span className={`pill ${item.ready ? "buy" : ""}`}>{item.ready ? "Ready" : "Building"}</span></td>
+              <td><span className={`pill ${item.ready ? "buy" : ""}`}>{item.ready ? "Готово" : "Сбор"}</span></td>
               <td>{item.last_timestamp ? new Date(item.last_timestamp).toLocaleString() : "-"}</td>
             </tr>
           ))}
-          {!items.length && <EmptyRow cols={6} text="No dataset readiness data" />}
+          {!items.length && <EmptyRow cols={6} text="Данных о готовности датасета пока нет" />}
         </tbody>
       </table>
     </div>
@@ -455,10 +455,10 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
 function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
   return (
     <div className="table-wrap">
-      <div className="table-title">Strategy Lab Top Configs</div>
+      <div className="table-title">Лучшие конфиги Strategy Lab</div>
       <table>
         <thead>
-          <tr><th>Symbol</th><th>Score</th><th>Stop</th><th>Take</th><th>Trail</th><th>Win Rate</th><th>Profit Factor</th><th>Total</th></tr>
+          <tr><th>Пара</th><th>Оценка</th><th>Стоп</th><th>Тейк</th><th>Трейл</th><th>Win Rate</th><th>Profit Factor</th><th>Итого</th></tr>
         </thead>
         <tbody>
           {items.map((item, index) => (
@@ -473,7 +473,7 @@ function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
               <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
             </tr>
           ))}
-          {!items.length && <EmptyRow cols={8} text="Run Optimize to generate strategy configs" />}
+          {!items.length && <EmptyRow cols={8} text="Запусти оптимизацию, чтобы получить конфиги стратегии" />}
         </tbody>
       </table>
     </div>
@@ -488,27 +488,27 @@ function OrdersTable({ orders, onChanged }: { orders: Order[]; onChanged: () => 
   return (
     <div className="table-wrap">
       <div className="table-title table-title-row">
-        <span>Execution Audit Trail</span>
-        <button className="btn compact" onClick={reconcile}>Reconcile</button>
+        <span>Аудит исполнения</span>
+        <button className="btn compact" onClick={reconcile}>Сверить</button>
       </div>
       <table>
         <thead>
-          <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Status</th><th>Filled</th><th>Avg Price</th><th>Fee</th><th>Slippage</th></tr>
+          <tr><th>Время</th><th>Пара</th><th>Сторона</th><th>Статус</th><th>Исполнено</th><th>Средняя цена</th><th>Комиссия</th><th>Проскальзывание</th></tr>
         </thead>
         <tbody>
           {orders.map((order) => (
             <tr key={order.id}>
               <td>{new Date(order.created_at).toLocaleString()}</td>
               <td className="font-semibold">{order.symbol}</td>
-              <td><span className={`pill ${order.side === "buy" ? "buy" : "sell"}`}>{order.side}</span></td>
-              <td>{order.status}</td>
+              <td><span className={`pill ${order.side === "buy" ? "buy" : "sell"}`}>{translateAction(order.side)}</span></td>
+              <td>{translateStatus(order.status)}</td>
               <td>{fmt(order.filled_amount)}</td>
               <td>${fmt(order.average_price ?? 0)}</td>
               <td>${fmt(order.fee)}</td>
               <td>${fmt(order.slippage)}</td>
             </tr>
           ))}
-          {!orders.length && <EmptyRow cols={8} text="No orders yet" />}
+          {!orders.length && <EmptyRow cols={8} text="Ордеров пока нет" />}
         </tbody>
       </table>
     </div>
@@ -519,24 +519,24 @@ function PositionsTable(props: { data: Dashboard | null; onChanged: () => Promis
   const positions = props.data?.active_positions ?? [];
   return (
     <div className="table-wrap">
-      <div className="table-title">Active Positions</div>
+      <div className="table-title">Активные позиции</div>
       <table>
         <thead>
-          <tr><th>Coin</th><th>Side</th><th>Entry</th><th>Stop</th><th>Take</th><th>PnL</th><th></th></tr>
+          <tr><th>Монета</th><th>Сторона</th><th>Вход</th><th>Стоп</th><th>Тейк</th><th>PnL</th><th></th></tr>
         </thead>
         <tbody>
           {positions.map((position) => (
             <tr key={position.id}>
               <td className="font-semibold">{position.symbol}</td>
-              <td><span className={`pill ${position.side === "LONG" ? "buy" : "sell"}`}>{position.side}</span></td>
+              <td><span className={`pill ${position.side === "LONG" ? "buy" : "sell"}`}>{translateAction(position.side)}</span></td>
               <td>${fmt(position.entry_price)}</td>
               <td>${fmt(position.stop)}</td>
               <td>${fmt(position.take)}</td>
               <td className={position.pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(position.pnl)}</td>
-              <td><button className="btn compact" onClick={async () => { await api.post(`/positions/${position.id}/close`); await props.onChanged(); }}>Close</button></td>
+              <td><button className="btn compact" onClick={async () => { await api.post(`/positions/${position.id}/close`); await props.onChanged(); }}>Закрыть</button></td>
             </tr>
           ))}
-          {!positions.length && <EmptyRow cols={7} text="No active positions yet" />}
+          {!positions.length && <EmptyRow cols={7} text="Активных позиций пока нет" />}
         </tbody>
       </table>
     </div>
@@ -548,10 +548,10 @@ function DecisionList({ run }: { run: TradingRun }) {
     <div className="decision-list">
       {run.decisions.map((item) => (
         <div className="decision" key={item.symbol}>
-          <span className={`pill ${item.signal === "BUY" ? "buy" : item.signal === "SELL" ? "sell" : ""}`}>{item.signal}</span>
+          <span className={`pill ${item.signal === "BUY" ? "buy" : item.signal === "SELL" ? "sell" : ""}`}>{translateAction(item.signal)}</span>
           <strong>{item.symbol}</strong>
-          <span>score {item.score}</span>
-          <span className={item.action === "OPENED" ? "text-accent" : "text-slate-500"}>{item.action}</span>
+          <span>оценка {item.score}</span>
+          <span className={item.action === "OPENED" ? "text-accent" : "text-slate-500"}>{translateAction(item.action)}</span>
           <span className="truncate">{item.reason}</span>
         </div>
       ))}
@@ -573,14 +573,14 @@ function MarketView() {
   React.useEffect(() => void load(), [load]);
   return (
     <section className="space-y-5">
-      <Header title="Market Scanner" subtitle="Rating, trend and indicator snapshot">
-        <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+      <Header title="Сканер рынка" subtitle="Рейтинг, тренд и снимок индикаторов">
+        <button className="btn" onClick={load}><RefreshCw size={16} /> Обновить</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Coin</th><th>Price</th><th>24h Volume</th><th>Change</th><th>RSI</th><th>Trend</th><th>Regime</th><th>Rating</th></tr>
+            <tr><th>Монета</th><th>Цена</th><th>Объем 24ч</th><th>Изм.</th><th>RSI</th><th>Тренд</th><th>Режим</th><th>Рейтинг</th></tr>
           </thead>
           <tbody>
             {coins.map((coin) => (
@@ -590,12 +590,12 @@ function MarketView() {
                 <td>${fmt(coin.volume_24h)}</td>
                 <td className={coin.price_change_percent >= 0 ? "text-accent" : "text-danger"}>{fmt(coin.price_change_percent)}%</td>
                 <td>{fmt(coin.rsi)}</td>
-                <td><span className={`pill ${coin.ema50 > coin.ema200 ? "buy" : "sell"}`}>{coin.ema50 > coin.ema200 ? "Bull" : "Bear"}</span></td>
-                <td><span className={`pill ${coin.regime === "TRENDING_UP" ? "buy" : coin.regime === "TRENDING_DOWN" || coin.regime === "HIGH_VOLATILITY" || coin.regime === "LOW_LIQUIDITY" ? "sell" : ""}`} title={coin.regime_reason}>{coin.regime}</span></td>
+                <td><span className={`pill ${coin.ema50 > coin.ema200 ? "buy" : "sell"}`}>{coin.ema50 > coin.ema200 ? "Бычий" : "Медвежий"}</span></td>
+                <td><span className={`pill ${coin.regime === "TRENDING_UP" ? "buy" : coin.regime === "TRENDING_DOWN" || coin.regime === "HIGH_VOLATILITY" || coin.regime === "LOW_LIQUIDITY" ? "sell" : ""}`} title={coin.regime_reason}>{translateRegime(coin.regime)}</span></td>
                 <td><span className="score">{coin.rating}</span></td>
               </tr>
             ))}
-            {!coins.length && <EmptyRow cols={8} text="No market data loaded" />}
+            {!coins.length && <EmptyRow cols={8} text="Рыночные данные пока не загружены" />}
           </tbody>
         </table>
       </div>
@@ -617,18 +617,18 @@ function LogsView() {
   React.useEffect(() => void load(), [load]);
   return (
     <section className="space-y-5">
-      <Header title="Logs" subtitle="Signals, trading actions and operational events">
-        <button className="btn" onClick={load}><RefreshCw size={16} /> Refresh</button>
+      <Header title="Логи" subtitle="Сигналы, торговые действия и события системы">
+        <button className="btn" onClick={load}><RefreshCw size={16} /> Обновить</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Time</th><th>Level</th><th>Message</th></tr></thead>
+          <thead><tr><th>Время</th><th>Уровень</th><th>Сообщение</th></tr></thead>
           <tbody>
             {logs.map((log) => (
               <tr key={log.id}><td>{new Date(log.created_at).toLocaleString()}</td><td><span className="pill">{log.level}</span></td><td>{log.message}</td></tr>
             ))}
-            {!logs.length && <EmptyRow cols={3} text="No logs yet" />}
+            {!logs.length && <EmptyRow cols={3} text="Логов пока нет" />}
           </tbody>
         </table>
       </div>
@@ -691,7 +691,7 @@ function SettingsView() {
     try {
       setError("");
       await api.put("/settings", settings);
-      setMessage({ ok: true, message: "Settings saved" });
+      setMessage({ ok: true, message: "Настройки сохранены" });
       setSettings((current) => ({ ...current, api_key: "", secret_key: "", passphrase: "" }));
     } catch (err) {
       setError(readError(err));
@@ -709,40 +709,40 @@ function SettingsView() {
 
   return (
     <section className="space-y-5">
-      <Header title="Settings" subtitle="Exchange credentials, risk model and Telegram checks">
-        <button className="btn primary" onClick={save}><Save size={16} /> Save</button>
+      <Header title="Настройки" subtitle="Ключи биржи, риск-модель и проверка Telegram">
+        <button className="btn primary" onClick={save}><Save size={16} /> Сохранить</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       {message && <Alert tone={message.ok ? "good" : "danger"} text={message.message} />}
       <div className="settings-grid">
         <div className="panel-block">
-          <div className="table-title">Exchange Keys</div>
-          <label className="field">Exchange<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
-          <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder="masked after save" /></label>
-          <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder="masked after save" /></label>
-          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder="optional" /></label>
+          <div className="table-title">Ключи биржи</div>
+          <label className="field">Биржа<select value={settings.exchange} onChange={(event) => update("exchange", event.target.value)}><option value="binance">Binance</option><option value="bybit">Bybit</option></select></label>
+          <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder="скрывается после сохранения" /></label>
+          <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder="скрывается после сохранения" /></label>
+          <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder="необязательно" /></label>
         </div>
         <div className="panel-block">
-          <div className="table-title">Risk Controls</div>
-          <label className="field">Risk per trade<input type="number" value={settings.risk_percent} onChange={(event) => update("risk_percent", Number(event.target.value))} /></label>
-          <label className="field">Daily risk<input type="number" value={settings.daily_risk_percent} onChange={(event) => update("daily_risk_percent", Number(event.target.value))} /></label>
-          <label className="field">Max positions<input type="number" value={settings.max_positions} onChange={(event) => update("max_positions", Number(event.target.value))} /></label>
-          <label className="field">Minimum rating<input type="number" value={settings.min_rating} onChange={(event) => update("min_rating", Number(event.target.value))} /></label>
-          <label className="field">Stop loss<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
-          <label className="field">Take profit<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
-          <label className="field">Trailing stop<input type="number" value={settings.trailing_stop_percent} onChange={(event) => update("trailing_stop_percent", Number(event.target.value))} /></label>
-          <label className="field">ATR stop multiplier<input type="number" value={settings.atr_stop_multiplier} onChange={(event) => update("atr_stop_multiplier", Number(event.target.value))} /></label>
-          <label className="field">Risk reward ratio<input type="number" value={settings.risk_reward_ratio} onChange={(event) => update("risk_reward_ratio", Number(event.target.value))} /></label>
-          <label className="field">Breakeven trigger R<input type="number" value={settings.breakeven_trigger_r} onChange={(event) => update("breakeven_trigger_r", Number(event.target.value))} /></label>
-          <label className="field">Breakeven offset<input type="number" value={settings.breakeven_offset_percent} onChange={(event) => update("breakeven_offset_percent", Number(event.target.value))} /></label>
-          <label className="field">Partial take profit R<input type="number" value={settings.partial_take_profit_r} onChange={(event) => update("partial_take_profit_r", Number(event.target.value))} /></label>
-          <label className="field">Partial close %<input type="number" value={settings.partial_close_percent} onChange={(event) => update("partial_close_percent", Number(event.target.value))} /></label>
-          <label className="field">Scan interval<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
+          <div className="table-title">Контроль риска</div>
+          <label className="field">Риск на сделку<input type="number" value={settings.risk_percent} onChange={(event) => update("risk_percent", Number(event.target.value))} /></label>
+          <label className="field">Дневной риск<input type="number" value={settings.daily_risk_percent} onChange={(event) => update("daily_risk_percent", Number(event.target.value))} /></label>
+          <label className="field">Макс. позиций<input type="number" value={settings.max_positions} onChange={(event) => update("max_positions", Number(event.target.value))} /></label>
+          <label className="field">Мин. рейтинг<input type="number" value={settings.min_rating} onChange={(event) => update("min_rating", Number(event.target.value))} /></label>
+          <label className="field">Стоп-лосс<input type="number" value={settings.stop_loss_percent} onChange={(event) => update("stop_loss_percent", Number(event.target.value))} /></label>
+          <label className="field">Тейк-профит<input type="number" value={settings.take_profit_percent} onChange={(event) => update("take_profit_percent", Number(event.target.value))} /></label>
+          <label className="field">Трейлинг-стоп<input type="number" value={settings.trailing_stop_percent} onChange={(event) => update("trailing_stop_percent", Number(event.target.value))} /></label>
+          <label className="field">ATR множитель стопа<input type="number" value={settings.atr_stop_multiplier} onChange={(event) => update("atr_stop_multiplier", Number(event.target.value))} /></label>
+          <label className="field">Risk/Reward<input type="number" value={settings.risk_reward_ratio} onChange={(event) => update("risk_reward_ratio", Number(event.target.value))} /></label>
+          <label className="field">Триггер безубытка R<input type="number" value={settings.breakeven_trigger_r} onChange={(event) => update("breakeven_trigger_r", Number(event.target.value))} /></label>
+          <label className="field">Отступ безубытка<input type="number" value={settings.breakeven_offset_percent} onChange={(event) => update("breakeven_offset_percent", Number(event.target.value))} /></label>
+          <label className="field">Частичный тейк R<input type="number" value={settings.partial_take_profit_r} onChange={(event) => update("partial_take_profit_r", Number(event.target.value))} /></label>
+          <label className="field">Частичное закрытие %<input type="number" value={settings.partial_close_percent} onChange={(event) => update("partial_close_percent", Number(event.target.value))} /></label>
+          <label className="field">Интервал скана<select value={settings.scan_interval} onChange={(event) => update("scan_interval", event.target.value)}><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option></select></label>
         </div>
         <div className="panel-block">
           <div className="table-title">Telegram</div>
-          <p className="muted">Token and allowed chat IDs are configured in Railway variables. Use this check after deploying the telegram worker.</p>
-          <button className="btn" onClick={testTelegram}><ShieldCheck size={16} /> Send test notification</button>
+          <p className="muted">Токен и разрешенные chat ID настраиваются в переменных Railway. Проверь после деплоя telegram-worker.</p>
+          <button className="btn" onClick={testTelegram}><ShieldCheck size={16} /> Отправить тест</button>
         </div>
       </div>
     </section>
@@ -779,15 +779,70 @@ function EmptyRow(props: { cols: number; text: string }) {
 }
 
 function fmt(value: number | undefined) {
-  return Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return Number(value ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+function translateAction(value: string) {
+  const labels: Record<string, string> = {
+    BUY: "Купить",
+    buy: "Покупка",
+    SELL: "Продать",
+    sell: "Продажа",
+    WAIT: "Ждать",
+    ALLOW: "Разрешить",
+    REDUCE_SIZE: "Уменьшить объем",
+    BLOCK: "Блок",
+    OPENED: "Открыто",
+    SKIPPED: "Пропущено",
+    LONG: "Лонг",
+    SHORT: "Шорт"
+  };
+  return labels[value] ?? value;
+}
+
+function translateStatus(value: string) {
+  const labels: Record<string, string> = {
+    NEW: "Новый",
+    FILLED: "Исполнен",
+    CANCELLED: "Отменен",
+    FAILED: "Ошибка",
+    OPEN: "Открыта",
+    CLOSED: "Закрыта"
+  };
+  return labels[value] ?? value;
+}
+
+function translateRegime(value: string) {
+  const labels: Record<string, string> = {
+    TRENDING_UP: "Рост",
+    TRENDING_DOWN: "Падение",
+    HIGH_VOLATILITY: "Высокая волатильность",
+    LOW_LIQUIDITY: "Низкая ликвидность",
+    RANGING: "Боковик",
+    UNKNOWN: "Неизвестно"
+  };
+  return labels[value] ?? value;
 }
 
 function readError(err: unknown) {
   if (typeof err === "object" && err && "response" in err) {
     const response = (err as { response?: { data?: { detail?: string } } }).response;
-    return response?.data?.detail ?? "Request failed";
+    return translateError(response?.data?.detail) ?? "Запрос не выполнен";
   }
-  return "Request failed";
+  return "Запрос не выполнен";
+}
+
+function translateError(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+  const labels: Record<string, string> = {
+    "Incorrect email or password": "Неверный email или пароль",
+    "Email already registered": "Этот email уже зарегистрирован",
+    "Registration failed": "Регистрация не удалась",
+    "Request failed": "Запрос не выполнен"
+  };
+  return labels[value] ?? value;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
