@@ -1,13 +1,14 @@
 import asyncio
 import logging
 
+import ccxt
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry, UserSettings
 from app.services.control import TradingControlService
-from app.services.exchange import ExchangeClient
+from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.locks import RedisLockManager
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
@@ -23,6 +24,7 @@ async def main() -> None:
     control = TradingControlService()
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
     while True:
+        current_exchange = settings.default_exchange
         try:
             async with AsyncSessionLocal() as db:
                 async with locks.lock("trader-worker-loop", ttl_seconds=max(settings.trader_loop_seconds - 5, 10)) as acquired:
@@ -33,6 +35,7 @@ async def main() -> None:
                             await db.commit()
                             await asyncio.sleep(settings.trader_loop_seconds)
                             continue
+                        current_exchange = user_settings.exchange
                         exchange = ExchangeClient.from_user_settings(user_settings)
                         engine = TradingEngine(exchange)
                         reconciliation = OrderReconciliationService(exchange)
@@ -60,9 +63,29 @@ async def main() -> None:
                             partial_close_percent=user_settings.partial_close_percent,
                         )
                         await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+        except ccxt.BaseError as exc:
+            message = exchange_error_message(
+                exc,
+                exchange=current_exchange,
+                market_type=settings.exchange_default_type,
+                sandbox=settings.exchange_sandbox_enabled,
+            )
+            logger.error("Trader worker exchange unavailable: %s", message)
+            await _record_worker_log(message)
+            await asyncio.sleep(max(settings.trader_loop_seconds, 300))
+            continue
         except Exception:
             logger.exception("Trader worker loop failed")
         await asyncio.sleep(settings.trader_loop_seconds)
+
+
+async def _record_worker_log(message: str) -> None:
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(LogEntry(level="ERROR", message=f"Trader worker exchange unavailable: {message[:900]}"))
+            await db.commit()
+    except Exception:
+        logger.exception("Failed to record trader worker exchange error")
 
 
 if __name__ == "__main__":
