@@ -6,10 +6,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import Position, Trade
+from app.models.entities import Position
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
 from app.services.performance_guard import PerformanceGuardService
+from app.services.pnl import PnlMetricsService
 from app.services.reconciliation import OrderReconciliationService
 
 logger = logging.getLogger(__name__)
@@ -84,12 +85,16 @@ class TelegramCommandService:
             balance = await ExchangeClient().get_balance()
             return "Balance:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
         if command == "/stats":
-            trades_count, pnl = (
-                await db.execute(select(func.count(Trade.id), func.coalesce(func.sum(Trade.profit), 0.0)))
-            ).one()
-            wins = (await db.execute(select(func.count(Trade.id)).where(Trade.profit > 0))).scalar_one()
-            win_rate = (int(wins) / int(trades_count) * 100) if trades_count else 0
-            return f"Stats:\nTrades: {trades_count}\nPnL: {float(pnl):.2f}\nWin Rate: {win_rate:.2f}%"
+            pnl = await PnlMetricsService().summary(db)
+            return (
+                f"Stats:\n"
+                f"Closed trades: {pnl.trades_count}\n"
+                f"Day PnL: {pnl.pnl_day:.2f}\n"
+                f"Week PnL: {pnl.pnl_week:.2f}\n"
+                f"Total PnL: {pnl.total_pnl:.2f}\n"
+                f"Open PnL: {pnl.open_pnl:.2f}\n"
+                f"Win Rate: {pnl.win_rate:.2f}%"
+            )
         if command == "/guard":
             report = await PerformanceGuardService().evaluate(db)
             return (

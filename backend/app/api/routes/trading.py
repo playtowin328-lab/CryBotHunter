@@ -12,6 +12,7 @@ from app.services.control import TradingControlService
 from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
 from app.services.performance_guard import PerformanceGuardService
+from app.services.pnl import PnlMetricsService
 from app.services.risk_manager import RiskSettings
 from app.services.exchange import ExchangeClient
 from app.services.trading_engine import TradingEngine
@@ -70,7 +71,7 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
             select(func.coalesce(func.sum(Position.current_price * Position.volume), 0.0)).where(Position.status == "OPEN")
         )
     ).scalar_one()
-    daily_pnl = await db.execute(select(func.coalesce(func.sum(Position.pnl), 0.0)).where(Position.status == "OPEN"))
+    pnl = await PnlMetricsService().summary(db)
     balance = 1000
     gross_exposure = float(exposure)
     return SystemStatusOut(
@@ -79,7 +80,7 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         telegram_enabled=bool(settings.telegram_bot_token),
         telegram_chat_count=len(settings.telegram_allowed_chat_ids),
         open_positions=int(open_positions),
-        daily_pnl=float(daily_pnl.scalar_one()),
+        daily_pnl=pnl.pnl_day,
         panic_paused=paused,
         panic_reason=panic_reason,
         ai_committee_enabled=settings.ai_committee_enabled,

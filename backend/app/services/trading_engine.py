@@ -15,6 +15,7 @@ from app.services.market_quality import MarketQualityGate
 from app.services.market_scanner import MarketScanner
 from app.services.optimizer import StrategyOptimizerService
 from app.services.performance_guard import PerformanceGuardService
+from app.services.pnl import PnlMetricsService
 from app.services.pretrade_quality import PreTradeQualityGate
 from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.strategy import StrategyCore
@@ -31,6 +32,7 @@ class TradingEngine:
         self.risk = RiskManager()
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
+        self.pnl_metrics = PnlMetricsService()
         self.quality_gate = PreTradeQualityGate()
         self.agents = AgentOrchestrator()
         self.learning = LearningService()
@@ -56,7 +58,7 @@ class TradingEngine:
         open_count = await self._open_positions_count(db)
         open_symbols = await self._open_symbols(db)
         side_counts = await self._open_side_counts(db)
-        daily_pnl = await self._daily_pnl(db)
+        daily_pnl = (await self.pnl_metrics.summary(db)).pnl_day
         exposure = await self._portfolio_exposure(db)
         decisions: list[TradingDecision] = []
 
@@ -522,8 +524,7 @@ class TradingEngine:
         return counts
 
     async def _daily_pnl(self, db: AsyncSession) -> float:
-        result = await db.execute(select(func.coalesce(func.sum(Trade.profit), 0.0)))
-        return float(result.scalar_one())
+        return (await self.pnl_metrics.summary(db)).pnl_day
 
     async def _portfolio_exposure(self, db: AsyncSession) -> dict:
         result = await db.execute(select(Position).where(Position.status == "OPEN"))
