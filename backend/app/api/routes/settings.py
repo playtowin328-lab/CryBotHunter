@@ -1,3 +1,5 @@
+import httpx
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,16 +55,20 @@ async def update_user_settings(payload: SettingsIn, user: User = Depends(current
 async def test_exchange_connection(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> ActionMessage:
     settings = await _settings_for(user, db)
     runtime = get_settings()
+    diagnostics = await _exchange_network_diagnostics()
     try:
         balance = await ExchangeClient.from_user_settings(settings).fetch_real_balance()
     except Exception as exc:
         return ActionMessage(
             ok=False,
-            message=exchange_error_message(
-                exc,
-                exchange=settings.exchange,
-                market_type=runtime.exchange_default_type,
-                sandbox=runtime.exchange_sandbox_enabled,
+            message=(
+                exchange_error_message(
+                    exc,
+                    exchange=settings.exchange,
+                    market_type=runtime.exchange_default_type,
+                    sandbox=runtime.exchange_sandbox_enabled,
+                )
+                + f" {diagnostics}"
             ),
         )
 
@@ -70,7 +76,7 @@ async def test_exchange_connection(user: User = Depends(current_user), db: Async
     mode = "sandbox" if runtime.exchange_sandbox_enabled else "real"
     return ActionMessage(
         ok=True,
-        message=f"{settings.exchange} подключена ({runtime.exchange_default_type}, {mode}). Баланс USDT: {usdt:.2f}; активов: {len(balance)}.",
+        message=f"{settings.exchange} подключена ({runtime.exchange_default_type}, {mode}). Баланс USDT: {usdt:.2f}; активов: {len(balance)}. {diagnostics}",
     )
 
 
@@ -96,6 +102,29 @@ async def _settings_for(user: User, db: AsyncSession) -> UserSettings:
     await db.commit()
     await db.refresh(settings)
     return settings
+
+
+async def _exchange_network_diagnostics() -> str:
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+        outbound_ip = await _diagnostic_get(client, "https://api.ipify.org?format=json", json_key="ip")
+        binance_public = await _diagnostic_get(client, "https://api.binance.com/api/v3/time")
+    return f"Outbound IP: {outbound_ip}; Binance public: {binance_public}."
+
+
+async def _diagnostic_get(client: httpx.AsyncClient, url: str, json_key: str | None = None) -> str:
+    try:
+        response = await client.get(url)
+        body = response.text.replace("\n", " ").strip()
+        if response.is_success and json_key:
+            try:
+                return str(response.json().get(json_key) or body[:160])
+            except ValueError:
+                return body[:160] or f"HTTP {response.status_code}"
+        if response.is_success:
+            return f"HTTP {response.status_code}"
+        return f"HTTP {response.status_code}: {body[:180]}"
+    except httpx.HTTPError as exc:
+        return f"{type(exc).__name__}: {str(exc)[:180]}"
 
 
 def _serialize(settings: UserSettings) -> SettingsOut:

@@ -1,4 +1,5 @@
 import asyncio
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,20 +13,32 @@ from app.models.entities import UserSettings
 def exchange_error_message(exc: Exception, exchange: str, market_type: str, sandbox: bool) -> str:
     mode = "sandbox" if sandbox else "real"
     suffix = f"Exchange={exchange}, market={market_type}, mode={mode}."
+    detail = _safe_error_detail(exc)
     if isinstance(exc, RuntimeError):
         return f"{exc} {suffix}"
     if isinstance(exc, ccxt.AuthenticationError):
         return (
             "Биржа не приняла API key/secret. Проверь ключи, IP whitelist, права ключа "
-            f"и совпадение sandbox/live режима. {suffix}"
+            f"и совпадение sandbox/live режима. {suffix}{detail}"
         )
     if isinstance(exc, ccxt.PermissionDenied):
-        return f"У API ключа не хватает прав для запроса баланса. Проверь права в кабинете биржи. {suffix}"
+        return f"У API ключа не хватает прав для запроса баланса. Проверь права в кабинете биржи. {suffix}{detail}"
     if isinstance(exc, ccxt.NetworkError):
-        return f"Биржа сейчас недоступна по сети или запрос заблокирован. {suffix}"
+        return f"Биржа сейчас недоступна по сети или запрос заблокирован. {suffix}{detail}"
     if isinstance(exc, ccxt.BaseError):
-        return f"Биржа ответила ошибкой: {str(exc)[:240]} {suffix}"
-    return f"Проверка биржи не удалась: {str(exc)[:240]} {suffix}"
+        return f"Биржа ответила ошибкой. {suffix}{detail}"
+    return f"Проверка биржи не удалась. {suffix}{detail}"
+
+
+def _safe_error_detail(exc: Exception) -> str:
+    detail = str(exc).replace("\n", " ").strip()
+    if not detail:
+        return f" Детали: {type(exc).__name__}."
+    detail = re.sub(r"(?i)(signature=)[^&\s]+", r"\1***", detail)
+    detail = re.sub(r"(?i)(timestamp=)[^&\s]+", r"\1***", detail)
+    detail = re.sub(r"(?i)(recvWindow=)[^&\s]+", r"\1***", detail)
+    detail = re.sub(r"(?i)(X-MBX-APIKEY['\"]?\s*[:=]\s*['\"]?)[^,'\"\s}]+", r"\1***", detail)
+    return f" Детали: {type(exc).__name__}: {detail[:320]}"
 
 
 @dataclass(frozen=True)
