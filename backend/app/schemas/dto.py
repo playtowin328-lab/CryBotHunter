@@ -128,6 +128,8 @@ class TradingTickOut(BaseModel):
 
 class SystemStatusOut(BaseModel):
     paper_trading: bool
+    market_data_mode: str = "ccxt"
+    real_market_data: bool = True
     exchange: str
     exchange_connected: bool = True
     exchange_error: str | None = None
@@ -207,6 +209,8 @@ class HistoryReadinessOut(BaseModel):
     symbol: str
     timeframe: str
     candles: int
+    real_candles: int = 0
+    synthetic_candles: int = 0
     target: int
     coverage_percent: float
     ready: bool
@@ -227,6 +231,22 @@ class StrategyOptimizationOut(BaseModel):
     max_drawdown: float
     total_profit: float
     trades_count: int
+    created_at: datetime | None = None
+
+
+class RlModelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    symbol: str
+    timeframe: str
+    algorithm: str
+    status: str
+    is_active: bool
+    training_candles: int
+    validation_candles: int
+    metrics: dict
+    feature_schema: dict
     created_at: datetime | None = None
 
 

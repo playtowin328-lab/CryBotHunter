@@ -37,24 +37,42 @@ class HistoricalDataService:
                 "low": candle["low"],
                 "close": candle["close"],
                 "volume": candle["volume"],
+                "source": candle["source"],
             }
             for candle in candles
         ]
-        statement = insert(Candle).values(rows)
-        statement = statement.on_conflict_do_nothing(
-            constraint="uq_candle_symbol_timeframe_timestamp",
-        )
-        result = await db.execute(statement)
+        affected = 0
+        for start in range(0, len(rows), 750):
+            batch = rows[start : start + 750]
+            statement = insert(Candle).values(batch)
+            statement = statement.on_conflict_do_update(
+                constraint="uq_candle_symbol_timeframe_timestamp",
+                set_={
+                    "open": statement.excluded.open,
+                    "high": statement.excluded.high,
+                    "low": statement.excluded.low,
+                    "close": statement.excluded.close,
+                    "volume": statement.excluded.volume,
+                    "source": statement.excluded.source,
+                },
+            )
+            result = await db.execute(statement)
+            affected += int(result.rowcount or 0)
         await db.commit()
-        return int(result.rowcount or 0)
+        return affected
 
-    async def load(self, db: AsyncSession, symbol: str, timeframe: str = "1h", limit: int = 500) -> list[Candle]:
-        result = await db.execute(
-            select(Candle)
-            .where(Candle.symbol == symbol, Candle.timeframe == timeframe)
-            .order_by(Candle.timestamp.desc())
-            .limit(limit)
-        )
+    async def load(
+        self,
+        db: AsyncSession,
+        symbol: str,
+        timeframe: str = "1h",
+        limit: int = 500,
+        source: str | None = None,
+    ) -> list[Candle]:
+        statement = select(Candle).where(Candle.symbol == symbol, Candle.timeframe == timeframe)
+        if source:
+            statement = statement.where(Candle.source == source)
+        result = await db.execute(statement.order_by(Candle.timestamp.desc()).limit(limit))
         return list(reversed(result.scalars().all()))
 
     async def readiness(self, db: AsyncSession, symbols: list[str], timeframes: list[str], target: int = 100_000) -> list[dict]:
@@ -64,20 +82,25 @@ class HistoricalDataService:
                 result = await db.execute(
                     select(
                         func.count(Candle.id),
+                        func.count(Candle.id).filter(Candle.source == "ccxt"),
+                        func.count(Candle.id).filter(Candle.source == "synthetic"),
                         func.min(Candle.timestamp),
                         func.max(Candle.timestamp),
                     ).where(Candle.symbol == symbol, Candle.timeframe == timeframe)
                 )
-                count, first_timestamp, last_timestamp = result.one()
-                coverage = round(min(int(count or 0) / max(target, 1) * 100, 100), 2)
+                count, real_count, synthetic_count, first_timestamp, last_timestamp = result.one()
+                effective_count = int(real_count or 0) if get_settings().uses_live_market_data else int(synthetic_count or 0)
+                coverage = round(min(effective_count / max(target, 1) * 100, 100), 2)
                 rows.append(
                     {
                         "symbol": symbol,
                         "timeframe": timeframe,
                         "candles": int(count or 0),
+                        "real_candles": int(real_count or 0),
+                        "synthetic_candles": int(synthetic_count or 0),
                         "target": target,
                         "coverage_percent": coverage,
-                        "ready": int(count or 0) >= target,
+                        "ready": effective_count >= target,
                         "first_timestamp": first_timestamp,
                         "last_timestamp": last_timestamp,
                     }
@@ -85,8 +108,8 @@ class HistoricalDataService:
         return rows
 
     async def _fetch(self, symbol: str, timeframe: str, limit: int) -> list[dict]:
-        if get_settings().market_data_mode.lower() == "ccxt":
-            raw = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        if get_settings().uses_live_market_data:
+            raw = await self._fetch_ccxt_pages(symbol, timeframe, limit)
             return [
                 {
                     "timestamp": datetime.fromtimestamp(item[0] / 1000, tz=timezone.utc),
@@ -95,10 +118,44 @@ class HistoricalDataService:
                     "low": float(item[3]),
                     "close": float(item[4]),
                     "volume": float(item[5]),
+                    "source": "ccxt",
                 }
                 for item in raw
             ]
         return self._paper_candles(symbol, timeframe, limit)
+
+    async def _fetch_ccxt_pages(self, symbol: str, timeframe: str, limit: int) -> list[list[float]]:
+        target = max(1, limit)
+        page_size = min(target, 1000)
+        if target <= page_size:
+            return await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=page_size)
+
+        interval_ms = self._timeframe_milliseconds(timeframe)
+        since = int(datetime.now(timezone.utc).timestamp() * 1000) - interval_ms * (target + 5)
+        candles: dict[int, list[float]] = {}
+        while len(candles) < target:
+            page = await self.exchange.fetch_ohlcv(
+                symbol,
+                timeframe=timeframe,
+                limit=min(1000, target - len(candles)),
+                since=since,
+            )
+            if not page:
+                break
+            for item in page:
+                candles[int(item[0])] = item
+            next_since = int(page[-1][0]) + interval_ms
+            if next_since <= since or len(page) < min(1000, target - len(candles) + len(page)):
+                break
+            since = next_since
+        return [candles[key] for key in sorted(candles)][-target:]
+
+    def _timeframe_milliseconds(self, timeframe: str) -> int:
+        units = {"m": 60_000, "h": 3_600_000, "d": 86_400_000}
+        try:
+            return max(int(timeframe[:-1]), 1) * units[timeframe[-1].lower()]
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f"Unsupported candle timeframe: {timeframe}") from None
 
     def _paper_candles(self, symbol: str, timeframe: str, limit: int) -> list[dict]:
         minutes = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}.get(timeframe, 60)
@@ -124,6 +181,7 @@ class HistoricalDataService:
                     "low": round(low, 6),
                     "close": round(close, 6),
                     "volume": round(volume, 6),
+                    "source": "synthetic",
                 }
             )
             price = close

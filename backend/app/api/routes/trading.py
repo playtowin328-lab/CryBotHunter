@@ -106,6 +106,8 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
             )
     return SystemStatusOut(
         paper_trading=settings.paper_trading,
+        market_data_mode=settings.market_data_mode,
+        real_market_data=settings.uses_live_market_data,
         exchange=user_settings.exchange,
         exchange_connected=exchange_connected,
         exchange_error=exchange_error,

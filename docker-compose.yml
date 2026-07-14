@@ -28,7 +28,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
       PAPER_TRADING: ${PAPER_TRADING:-true}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
@@ -50,7 +50,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
       PAPER_TRADING: ${PAPER_TRADING:-true}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
@@ -70,7 +70,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
       PAPER_TRADING: ${PAPER_TRADING:-true}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}

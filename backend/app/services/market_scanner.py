@@ -17,11 +17,8 @@ class MarketScanner:
 
     async def scan(self, symbols: list[str] | None = None) -> list[MarketCoin]:
         symbols = symbols or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
-        if get_settings().market_data_mode.lower() == "ccxt":
-            try:
-                return await self._scan_ccxt(symbols)
-            except Exception:
-                pass
+        if get_settings().uses_live_market_data:
+            return await self._scan_ccxt(symbols)
         rows = [self._synthetic_row(symbol) for symbol in symbols]
         return [self._coin_from_row(row) for row in rows]
 

@@ -108,6 +108,8 @@ export type TradingTick = {
 
 export type SystemStatus = {
   paper_trading: boolean;
+  market_data_mode: string;
+  real_market_data: boolean;
   exchange: string;
   exchange_connected: boolean;
   exchange_error?: string | null;
@@ -183,6 +185,8 @@ export type HistoryReadiness = {
   symbol: string;
   timeframe: string;
   candles: number;
+  real_candles: number;
+  synthetic_candles: number;
   target: number;
   coverage_percent: number;
   ready: boolean;
@@ -222,6 +226,30 @@ export type StrategyOptimization = {
   max_drawdown: number;
   total_profit: number;
   trades_count: number;
+  created_at?: string | null;
+};
+
+export type RlModel = {
+  id: number;
+  symbol: string;
+  timeframe: string;
+  algorithm: string;
+  status: "ACTIVE" | "REJECTED" | "RETIRED" | string;
+  is_active: boolean;
+  training_candles: number;
+  validation_candles: number;
+  metrics: {
+    return_percent?: number;
+    max_drawdown_percent?: number;
+    profit_factor?: number;
+    trades?: number;
+    buy_hold_return_percent?: number;
+    passed?: boolean;
+    promotion_reason?: string;
+    market_data_source?: string;
+    seed?: number;
+  };
+  feature_schema: Record<string, unknown>;
   created_at?: string | null;
 };
 

@@ -19,6 +19,7 @@ from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.pretrade_quality import PreTradeQualityGate
 from app.services.risk_manager import RiskManager, RiskSettings
+from app.services.rl_gate import RlDecisionGate
 from app.services.strategy import StrategyCore
 from app.services.telegram_bot import TelegramNotifier
 
@@ -31,6 +32,7 @@ class TradingEngine:
         self.strategy = StrategyCore()
         self.optimizer = StrategyOptimizerService()
         self.risk = RiskManager()
+        self.rl_gate = RlDecisionGate()
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
         self.cooldown_guard = LossCooldownGuard()
@@ -115,6 +117,19 @@ class TradingEngine:
                     reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"
+            if accepted:
+                rl_assessment = await self.rl_gate.assess(db, coin.symbol, signal.signal)
+                if not rl_assessment.allowed:
+                    accepted = False
+                    reason = rl_assessment.reason
+                elif rl_assessment.risk_multiplier < 1:
+                    trade_settings = replace(
+                        trade_settings,
+                        risk_percent=round(trade_settings.risk_percent * rl_assessment.risk_multiplier, 4),
+                    )
+                    reason = f"{reason}; {rl_assessment.reason}"
+                elif "agrees" in rl_assessment.reason:
+                    reason = f"{reason}; {rl_assessment.reason}"
             if accepted:
                 side = "LONG" if signal.signal == "BUY" else "SHORT"
                 direction_allowed, direction_reason, direction_multiplier = self.risk.directional_exposure(

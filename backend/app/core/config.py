@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-in-production")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
-    encryption_key: str = Field(default="P9YpxIBJHW2FQ1NpoZ4jdECrgXqNRmn78DS97L5yOAk=")
+    encryption_key: str = Field(default="replace-with-valid-fernet-key")
 
     cors_origins_raw: str = Field(default="http://localhost:5173,http://localhost:8080", validation_alias="CORS_ORIGINS")
     default_exchange: str = "binance"
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     live_trading_enabled: bool = False
     exchange_sandbox_enabled: bool = True
     allow_live_trading_without_sandbox: bool = False
-    market_data_mode: str = "paper"
+    market_data_mode: str = "ccxt"
     paper_fee_rate: float = 0.0004
     paper_slippage_bps: float = 2.0
     exchange_api_key: str | None = None
@@ -90,7 +90,23 @@ class Settings(BaseSettings):
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500
     candle_ingest_loop_seconds: int = 300
-    candle_dataset_target: int = 100_000
+    candle_dataset_target: int = 5_000
+    rl_trainer_enabled: bool = False
+    rl_gate_enabled: bool = True
+    rl_training_timesteps: int = 20_000
+    rl_training_limit: int = 5_000
+    rl_min_training_candles: int = 2_000
+    rl_training_seeds_raw: str = Field(default="7,29", validation_alias="RL_TRAINING_SEEDS")
+    rl_refresh_hours: float = 24.0
+    rl_prediction_loop_seconds: int = 300
+    rl_validation_percent: float = 25.0
+    rl_min_validation_return_percent: float = 0.0
+    rl_min_validation_profit_factor: float = 1.05
+    rl_min_validation_trades: int = 5
+    rl_max_validation_drawdown_percent: float = 15.0
+    rl_gate_min_confidence: float = 0.55
+    rl_gate_max_age_hours: float = 6.0
+    rl_wait_risk_multiplier: float = 0.5
 
     @property
     def cors_origins(self) -> list[str]:
@@ -107,6 +123,23 @@ class Settings(BaseSettings):
     @property
     def candle_ingest_timeframes(self) -> list[str]:
         return _parse_csv(self.candle_ingest_timeframes_raw)
+
+    @property
+    def uses_live_market_data(self) -> bool:
+        # "paper" used to mean synthetic data. Keep it as a compatibility
+        # alias for public exchange data; execution safety is controlled only
+        # by PAPER_TRADING/LIVE_TRADING_ENABLED.
+        return self.market_data_mode.strip().lower() != "synthetic"
+
+    @property
+    def rl_training_seeds(self) -> list[int]:
+        values: list[int] = []
+        for item in _parse_csv(self.rl_training_seeds_raw):
+            try:
+                values.append(int(item))
+            except ValueError:
+                continue
+        return values or [7]
 
 
 @lru_cache

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -142,6 +142,7 @@ class Candle(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16), index=True, default="unknown")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -181,6 +182,23 @@ class StrategyOptimization(Base):
     max_drawdown: Mapped[float] = mapped_column(Float, default=0.0)
     total_profit: Mapped[float] = mapped_column(Float, default=0.0)
     trades_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RlModel(Base):
+    __tablename__ = "rl_models"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    timeframe: Mapped[str] = mapped_column(String(16), index=True)
+    algorithm: Mapped[str] = mapped_column(String(16), default="PPO")
+    status: Mapped[str] = mapped_column(String(16), index=True, default="CANDIDATE")
+    is_active: Mapped[bool] = mapped_column(Boolean, index=True, default=False)
+    training_candles: Mapped[int] = mapped_column(Integer, default=0)
+    validation_candles: Mapped[int] = mapped_column(Integer, default=0)
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict)
+    feature_schema: Mapped[dict] = mapped_column(JSON, default=dict)
+    artifact: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

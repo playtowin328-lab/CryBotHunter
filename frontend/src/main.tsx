@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -235,6 +235,7 @@ function DashboardView() {
   const [optimizations, setOptimizations] = React.useState<StrategyOptimization[]>([]);
   const [learningRules, setLearningRules] = React.useState<LearningRule[]>([]);
   const [learningSummary, setLearningSummary] = React.useState<LearningSummary | null>(null);
+  const [rlModels, setRlModels] = React.useState<RlModel[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
@@ -278,7 +279,8 @@ function DashboardView() {
       request<StrategyOptimization[]>("Оптимизация", api.get<StrategyOptimization[]>("/strategy-lab/results"), setOptimizations),
       request<HistoryReadiness[]>("Свечи", api.get<HistoryReadiness[]>("/market/history/readiness"), setReadiness),
       request<LearningRule[]>("Обучение", api.get<LearningRule[]>("/strategy-lab/learning-rules"), setLearningRules),
-      request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary)
+      request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary),
+      request<RlModel[]>("RL-модели", api.get<RlModel[]>("/strategy-lab/rl-models"), setRlModels)
     ]);
     if (loadSeq.current === seq) {
       setRefreshing(false);
@@ -397,6 +399,7 @@ function DashboardView() {
           good={status?.exchange_connected ?? true}
         />
         <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} чат` : "Отключен"} good={Boolean(status?.telegram_enabled)} />
+        <StatusItem label="Данные рынка" value={status?.real_market_data ? "Реальный рынок" : "Синтетика"} good={status?.real_market_data ?? false} />
         <StatusItem label="Открытые позиции" value={String(status?.open_positions ?? 0)} />
         <StatusItem
           label="Экспозиция"
@@ -455,6 +458,7 @@ function DashboardView() {
       </div>
       <OrdersTable orders={orders} onChanged={load} />
       <LearningRulesTable items={learningRules} summary={learningSummary} />
+      <RlModelsTable items={rlModels} />
       <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
@@ -468,7 +472,7 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
       {batch && <p className="muted">Последняя пачка добавила свечей: {Object.values(batch.inserted).reduce((sum, value) => sum + value, 0)}.</p>}
       <table>
         <thead>
-          <tr><th>Пара</th><th>Таймфрейм</th><th>Свечи</th><th>Покрытие</th><th>Статус</th><th>Последняя свеча</th></tr>
+          <tr><th>Пара</th><th>Таймфрейм</th><th>Всего</th><th>Реальные</th><th>Синтетика</th><th>Покрытие</th><th>Статус</th><th>Последняя свеча</th></tr>
         </thead>
         <tbody>
           {items.map((item) => (
@@ -476,12 +480,14 @@ function ReadinessTable({ items, batch }: { items: HistoryReadiness[]; batch: Hi
               <td className="font-semibold">{item.symbol}</td>
               <td>{item.timeframe}</td>
               <td>{item.candles.toLocaleString()}</td>
+              <td className="text-accent">{item.real_candles.toLocaleString()}</td>
+              <td>{item.synthetic_candles.toLocaleString()}</td>
               <td>{fmt(item.coverage_percent)}%</td>
               <td><span className={`pill ${item.ready ? "buy" : ""}`}>{item.ready ? "Готово" : "Сбор"}</span></td>
               <td>{item.last_timestamp ? new Date(item.last_timestamp).toLocaleString() : "-"}</td>
             </tr>
           ))}
-          {!items.length && <EmptyRow cols={6} text="Данных о готовности датасета пока нет" />}
+          {!items.length && <EmptyRow cols={8} text="Данных о готовности датасета пока нет" />}
         </tbody>
       </table>
     </div>
@@ -557,6 +563,36 @@ function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
             );
           })}
           {!items.length && <EmptyRow cols={11} text="Запусти оптимизацию, чтобы получить конфиги стратегии" />}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RlModelsTable({ items }: { items: RlModel[] }) {
+  return (
+    <div className="table-wrap">
+      <div className="table-title">RL-агент Stable Baselines3</div>
+      <table>
+        <thead>
+          <tr><th>Пара</th><th>Модель</th><th>Статус</th><th>Train / Validation</th><th>Доходность</th><th>Profit Factor</th><th>Просадка</th><th>Сделки</th><th>Источник</th><th>Причина</th></tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td className="font-semibold">{item.symbol} / {item.timeframe}</td>
+              <td>{item.algorithm} #{item.id}</td>
+              <td><span className={`pill ${item.is_active ? "buy" : "sell"}`}>{item.is_active ? "Активна" : item.status === "RETIRED" ? "Архив" : "Отклонена"}</span></td>
+              <td>{item.training_candles.toLocaleString()} / {item.validation_candles.toLocaleString()}</td>
+              <td className={(item.metrics.return_percent ?? 0) >= 0 ? "text-accent" : "text-danger"}>{fmt(item.metrics.return_percent)}%</td>
+              <td>{fmt(item.metrics.profit_factor)}</td>
+              <td className="text-danger">{fmt(item.metrics.max_drawdown_percent)}%</td>
+              <td>{item.metrics.trades ?? 0}</td>
+              <td>{item.metrics.market_data_source === "ccxt" ? "Реальный рынок" : item.metrics.market_data_source ?? "-"}</td>
+              <td>{item.metrics.promotion_reason ?? "-"}</td>
+            </tr>
+          ))}
+          {!items.length && <EmptyRow cols={10} text="RL-моделей пока нет. Тренер ожидает достаточную историю реальных свечей." />}
         </tbody>
       </table>
     </div>

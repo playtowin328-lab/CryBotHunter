@@ -97,9 +97,15 @@ class ExchangeClient:
         tickers = await asyncio.to_thread(client.fetch_tickers, symbols)
         return {symbol: tickers[symbol] for symbol in symbols if symbol in tickers}
 
-    async def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 250) -> list[list[float]]:
+    async def fetch_ohlcv(
+        self,
+        symbol: str,
+        timeframe: str = "1h",
+        limit: int = 250,
+        since: int | None = None,
+    ) -> list[list[float]]:
         client = self._client(authenticated=False)
-        return await asyncio.to_thread(client.fetch_ohlcv, symbol, timeframe, None, limit)
+        return await asyncio.to_thread(client.fetch_ohlcv, symbol, timeframe, since, limit)
 
     async def prepare_order(self, symbol: str, amount: float, reference_price: float) -> PreparedOrder:
         return await asyncio.to_thread(self._prepare_order_sync, symbol, amount, reference_price)

@@ -5,7 +5,7 @@ MVP scaffold for an automated crypto trading system with FastAPI, PostgreSQL, Re
 ## Stack
 
 - Backend: Python 3.12, FastAPI, SQLAlchemy 2, Alembic, PostgreSQL, Redis, CCXT-ready services, Pandas, NumPy, APScheduler
-- ML: XGBoost, LightGBM, Scikit-Learn dependencies and prediction service interface
+- ML: XGBoost, LightGBM, Scikit-Learn, and an isolated Stable Baselines3 PPO training worker
 - Frontend: React, TypeScript, TailwindCSS, Vite, Axios
 - Infrastructure: Docker Compose, Nginx
 
@@ -36,6 +36,7 @@ Create one Railway project with these services:
 - `telegram-bot` worker service from this GitHub repository with root directory `backend`
 - `trader-worker` worker service from this GitHub repository with root directory `backend`
 - `candle-worker` worker service from this GitHub repository with root directory `backend`
+- `rl-worker` worker service from this GitHub repository with root directory `backend` and Dockerfile `Dockerfile.rl`
 
 Backend variables:
 
@@ -50,7 +51,7 @@ PAPER_TRADING=true
 LIVE_TRADING_ENABLED=false
 EXCHANGE_SANDBOX_ENABLED=true
 ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false
-MARKET_DATA_MODE=paper
+MARKET_DATA_MODE=ccxt
 CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
@@ -66,7 +67,7 @@ CANDLE_INGEST_SYMBOLS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT
 CANDLE_INGEST_TIMEFRAMES=1h
 CANDLE_INGEST_LIMIT=500
 CANDLE_INGEST_LOOP_SECONDS=300
-CANDLE_DATASET_TARGET=100000
+CANDLE_DATASET_TARGET=5000
 ```
 
 Frontend variables:
@@ -102,7 +103,7 @@ PAPER_TRADING=true
 LIVE_TRADING_ENABLED=false
 EXCHANGE_SANDBOX_ENABLED=true
 ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false
-MARKET_DATA_MODE=paper
+MARKET_DATA_MODE=ccxt
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
@@ -127,10 +128,47 @@ CANDLE_INGEST_SYMBOLS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT
 CANDLE_INGEST_TIMEFRAMES=1h,15m
 CANDLE_INGEST_LIMIT=500
 CANDLE_INGEST_LOOP_SECONDS=300
-CANDLE_DATASET_TARGET=100000
+CANDLE_DATASET_TARGET=5000
 ```
 
-Set `MARKET_DATA_MODE=ccxt` to use live exchange market data through CCXT while keeping `PAPER_TRADING=true`. For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
+`PAPER_TRADING=true` controls order execution only. Paper orders and balances remain virtual while `MARKET_DATA_MODE=ccxt` reads real public exchange prices and candles. The legacy value `MARKET_DATA_MODE=paper` is treated as the same real public feed for backward compatibility. Synthetic data is available only with the explicit value `MARKET_DATA_MODE=synthetic` and must never be used by the RL trainer.
+
+For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
+
+RL worker variables:
+
+```env
+APP_PROCESS=rl
+ENVIRONMENT=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=the-same-secret-as-backend
+ENCRYPTION_KEY=the-same-fernet-key-as-backend
+PAPER_TRADING=true
+LIVE_TRADING_ENABLED=false
+MARKET_DATA_MODE=ccxt
+DEFAULT_EXCHANGE=binance
+CANDLE_INGEST_SYMBOLS=BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT
+CANDLE_INGEST_TIMEFRAMES=1h
+RL_TRAINER_ENABLED=true
+RL_GATE_ENABLED=true
+RL_TRAINING_TIMESTEPS=20000
+RL_TRAINING_LIMIT=5000
+RL_MIN_TRAINING_CANDLES=2000
+RL_TRAINING_SEEDS=7,29
+RL_REFRESH_HOURS=24
+RL_PREDICTION_LOOP_SECONDS=300
+RL_VALIDATION_PERCENT=25
+RL_MIN_VALIDATION_RETURN_PERCENT=0
+RL_MIN_VALIDATION_PROFIT_FACTOR=1.05
+RL_MIN_VALIDATION_TRADES=5
+RL_MAX_VALIDATION_DRAWDOWN_PERCENT=15
+RL_GATE_MIN_CONFIDENCE=0.55
+RL_GATE_MAX_AGE_HOURS=6
+RL_WAIT_RISK_MULTIPLIER=0.5
+```
+
+The RL service needs no Binance API key because OHLCV is public. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
 
 Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for one symbol, `POST /api/v1/market/history/ingest/batch` for configured symbols, and `GET /api/v1/market/history/readiness` to inspect dataset coverage for backtesting and future ML datasets.
 
@@ -184,7 +222,7 @@ Supported commands:
 - Supports a dedicated `APP_PROCESS=trader` worker that loops automatically, manages open positions, and scans for new entries.
 - Registers/logs in users with JWT.
 - Stores exchange API keys encrypted and returns only masked values.
-- Scans synthetic market data and calculates ratings from volume, trend, volatility, volume growth, and liquidity.
+- Uses real public exchange market data in paper mode and records candle provenance so synthetic rows cannot enter RL training.
 - Produces BUY, SELL, or WAIT signals based on EMA/RSI/price/volume/rating rules.
 - Detects market regimes such as trending, ranging, high volatility, and low liquidity before accepting entries.
 - Applies risk checks before opening paper positions.
@@ -200,6 +238,8 @@ Supported commands:
 - Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
 - Runs walk-forward backtests through `/api/v1/trading/backtest/walk-forward` to validate optimized parameters on unseen windows.
 - Runs Strategy Lab optimization through `/api/v1/strategy-lab/optimize` and stores top strategy configurations.
+- Trains multiple seeded PPO candidates on older real candles, validates them chronologically on unseen candles with fees and slippage, and promotes only candidates that pass return, profit-factor, trade-count, and drawdown gates.
+- Publishes promoted PPO decisions through the shared database; the trading engine uses them only as a veto or risk reducer behind deterministic risk controls.
 - Provides safe AI Trade Committee decisions through `/api/v1/agents/analyze`; agents vote, veto weak setups, and audit every decision while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.
 - Provides panic/resume controls through API and Telegram.
@@ -212,8 +252,7 @@ Supported commands:
 ## Next Production Steps
 
 - Wire `ExchangeClient` to authenticated CCXT clients for Binance and Bybit.
-- Add live candle ingestion and persist historical candles for 100,000+ samples.
-- Train and version ML models for long/short probability.
+- Accumulate a longer multi-timeframe real-market dataset and monitor model drift across market regimes.
 - Expand Strategy Lab with multi-symbol optimization, ML feature selection, and automated model promotion rules.
 - Replace Telegram polling with webhook mode if lower latency is needed.
 - Add pytest coverage for strategy, risk manager, auth, and trading engine.

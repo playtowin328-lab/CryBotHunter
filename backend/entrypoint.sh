@@ -18,6 +18,9 @@ case "$process" in
   optimizer)
     exec python -m app.optimizer_worker
     ;;
+  rl)
+    exec python -m app.rl_worker
+    ;;
   web|"")
     exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
     ;;

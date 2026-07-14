@@ -5,8 +5,8 @@ from app.api.deps import current_user
 from app.db.session import get_db
 from sqlalchemy import select
 
-from app.models.entities import LearningRule, User
-from app.schemas.dto import LearningRuleOut, LearningSummaryOut, StrategyOptimizationOut
+from app.models.entities import LearningRule, RlModel, User
+from app.schemas.dto import LearningRuleOut, LearningSummaryOut, RlModelOut, StrategyOptimizationOut
 from app.services.learning import LearningService
 from app.services.optimizer import StrategyOptimizerService
 
@@ -29,6 +29,17 @@ async def optimize(
 async def results(_: User = Depends(current_user), db: AsyncSession = Depends(get_db), limit: int = 20) -> list[StrategyOptimizationOut]:
     bounded_limit = max(1, min(limit, 100))
     return await StrategyOptimizerService().recent(db, limit=bounded_limit)
+
+
+@router.get("/rl-models", response_model=list[RlModelOut])
+async def rl_models(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 20,
+) -> list[RlModelOut]:
+    bounded_limit = max(1, min(limit, 100))
+    result = await db.execute(select(RlModel).order_by(RlModel.created_at.desc()).limit(bounded_limit))
+    return list(result.scalars().all())
 
 
 @router.get("/learning-rules", response_model=list[LearningRuleOut])
