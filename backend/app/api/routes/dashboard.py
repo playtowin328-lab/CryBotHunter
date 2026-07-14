@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +12,17 @@ from app.services.exchange import ExchangeClient
 from app.services.pnl import PnlMetricsService
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=DashboardOut)
 async def dashboard(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> DashboardOut:
     user_settings = (await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))).scalar_one()
-    balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0)
+    try:
+        balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0)
+    except Exception:
+        logger.exception("Failed to fetch dashboard exchange balance")
+        balance = 0
     positions = (await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))).scalars().all()
     pnl = await PnlMetricsService().summary(db)
     return DashboardOut(

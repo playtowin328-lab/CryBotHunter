@@ -1,12 +1,16 @@
+import ccxt
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
+from app.core.config import get_settings
 from app.core.security import decrypt_secret, encrypt_secret, mask_secret
 from app.db.session import get_db
 from app.models.entities import User, UserSettings
 from app.schemas.dto import ActionMessage, SettingsIn, SettingsOut
+from app.services.exchange import ExchangeClient
 from app.services.telegram_bot import TelegramNotifier
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -47,6 +51,31 @@ async def update_user_settings(payload: SettingsIn, user: User = Depends(current
     return _serialize(settings)
 
 
+@router.post("/exchange/test", response_model=ActionMessage)
+async def test_exchange_connection(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> ActionMessage:
+    settings = await _settings_for(user, db)
+    runtime = get_settings()
+    try:
+        balance = await ExchangeClient.from_user_settings(settings).fetch_real_balance()
+    except Exception as exc:
+        return ActionMessage(
+            ok=False,
+            message=_exchange_error_message(
+                exc,
+                exchange=settings.exchange,
+                market_type=runtime.exchange_default_type,
+                sandbox=runtime.exchange_sandbox_enabled,
+            ),
+        )
+
+    usdt = float(balance.get("USDT") or 0.0)
+    mode = "sandbox" if runtime.exchange_sandbox_enabled else "real"
+    return ActionMessage(
+        ok=True,
+        message=f"{settings.exchange} подключена ({runtime.exchange_default_type}, {mode}). Баланс USDT: {usdt:.2f}; активов: {len(balance)}.",
+    )
+
+
 @router.post("/telegram/test", response_model=ActionMessage)
 async def test_telegram(_: User = Depends(current_user)) -> ActionMessage:
     notifier = TelegramNotifier()
@@ -69,6 +98,25 @@ async def _settings_for(user: User, db: AsyncSession) -> UserSettings:
     await db.commit()
     await db.refresh(settings)
     return settings
+
+
+def _exchange_error_message(exc: Exception, exchange: str, market_type: str, sandbox: bool) -> str:
+    mode = "sandbox" if sandbox else "real"
+    suffix = f"Exchange={exchange}, market={market_type}, mode={mode}."
+    if isinstance(exc, RuntimeError):
+        return f"{exc} {suffix}"
+    if isinstance(exc, ccxt.AuthenticationError):
+        return (
+            "Биржа не приняла API key/secret. Проверь ключи, IP whitelist, права ключа "
+            f"и совпадение sandbox/live режима. {suffix}"
+        )
+    if isinstance(exc, ccxt.PermissionDenied):
+        return f"У API ключа не хватает прав для запроса баланса. Проверь права в кабинете биржи. {suffix}"
+    if isinstance(exc, ccxt.NetworkError):
+        return f"Биржа сейчас недоступна по сети или запрос заблокирован. {suffix}"
+    if isinstance(exc, ccxt.BaseError):
+        return f"Биржа ответила ошибкой: {str(exc)[:240]} {suffix}"
+    return f"Проверка биржи не удалась: {str(exc)[:240]} {suffix}"
 
 
 def _serialize(settings: UserSettings) -> SettingsOut:

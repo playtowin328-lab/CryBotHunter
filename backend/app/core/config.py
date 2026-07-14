@@ -21,6 +21,7 @@ class Settings(BaseSettings):
 
     cors_origins_raw: str = Field(default="http://localhost:5173,http://localhost:8080", validation_alias="CORS_ORIGINS")
     default_exchange: str = "binance"
+    exchange_default_type: str = "spot"
     paper_trading: bool = True
     live_trading_enabled: bool = False
     exchange_sandbox_enabled: bool = True

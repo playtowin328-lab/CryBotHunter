@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,7 @@ from app.services.exchange import ExchangeClient
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter(prefix="/trading", tags=["trading"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/run-once", response_model=TradingRunOut)
@@ -72,7 +75,11 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         )
     ).scalar_one()
     pnl = await PnlMetricsService().summary(db)
-    balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
+    try:
+        balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
+    except Exception:
+        logger.exception("Failed to fetch trading status exchange balance")
+        balance = 0.0
     gross_exposure = float(exposure)
     return SystemStatusOut(
         paper_trading=settings.paper_trading,

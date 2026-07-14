@@ -55,6 +55,11 @@ class ExchangeClient:
         balance = await asyncio.to_thread(client.fetch_balance)
         return {asset: float(amount) for asset, amount in balance.get("free", {}).items() if amount}
 
+    async def fetch_real_balance(self) -> dict[str, float]:
+        client = self._client(authenticated=True)
+        balance = await asyncio.to_thread(client.fetch_balance)
+        return {asset: float(amount) for asset, amount in balance.get("total", {}).items() if amount}
+
     async def fetch_tickers(self, symbols: list[str]) -> dict[str, dict[str, Any]]:
         client = self._client(authenticated=False)
         tickers = await asyncio.to_thread(client.fetch_tickers, symbols)
@@ -125,7 +130,10 @@ class ExchangeClient:
         exchange_class = getattr(ccxt, self.exchange, None)
         if exchange_class is None:
             raise RuntimeError(f"Unsupported exchange: {self.exchange}")
-        params: dict[str, Any] = {"enableRateLimit": True, "options": {"defaultType": "swap"}}
+        params: dict[str, Any] = {
+            "enableRateLimit": True,
+            "options": {"defaultType": self.settings.exchange_default_type},
+        }
         if authenticated:
             api_key = self.api_key or self.settings.exchange_api_key
             secret_key = self.secret_key or self.settings.exchange_secret_key

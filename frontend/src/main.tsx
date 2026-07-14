@@ -250,7 +250,7 @@ function DashboardView() {
   const load = React.useCallback(async () => {
     try {
       setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes] = await Promise.all([
+      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes] = await Promise.allSettled([
         api.get("/dashboard"),
         api.get("/trading/status"),
         api.get("/trading/guard"),
@@ -261,15 +261,21 @@ function DashboardView() {
         api.get("/strategy-lab/learning-rules"),
         api.get("/strategy-lab/learning-summary")
       ]);
-      setData(dashboardRes.data);
-      setStatus(statusRes.data);
-      setGuard(guardRes.data);
-      setBacktest(backtestRes.data);
-      setOrders(ordersRes.data);
-      setOptimizations(optimizationsRes.data);
-      setReadiness(readinessRes.data);
-      setLearningRules(learningRes.data);
-      setLearningSummary(learningSummaryRes.data);
+      if (dashboardRes.status === "fulfilled") setData(dashboardRes.value.data);
+      if (statusRes.status === "fulfilled") setStatus(statusRes.value.data);
+      if (guardRes.status === "fulfilled") setGuard(guardRes.value.data);
+      if (backtestRes.status === "fulfilled") setBacktest(backtestRes.value.data);
+      if (ordersRes.status === "fulfilled") setOrders(ordersRes.value.data);
+      if (optimizationsRes.status === "fulfilled") setOptimizations(optimizationsRes.value.data);
+      if (readinessRes.status === "fulfilled") setReadiness(readinessRes.value.data);
+      if (learningRes.status === "fulfilled") setLearningRules(learningRes.value.data);
+      if (learningSummaryRes.status === "fulfilled") setLearningSummary(learningSummaryRes.value.data);
+
+      const failed = [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes]
+        .find((result): result is PromiseRejectedResult => result.status === "rejected");
+      if (failed) {
+        setError(`Часть данных не загрузилась: ${readError(failed.reason)}`);
+      }
     } catch (err) {
       setError(readError(err));
     }
@@ -824,6 +830,19 @@ function SettingsView() {
     }
   }
 
+  async function testExchange() {
+    try {
+      setError("");
+      setMessage(null);
+      setSaving(true);
+      setMessage((await api.post<ActionMessage>("/settings/exchange/test")).data);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <Header title="Настройки" subtitle="Ключи биржи, риск-модель и проверка Telegram">
@@ -847,6 +866,7 @@ function SettingsView() {
           <label className="field">API Key<input type="password" value={settings.api_key} onChange={(event) => update("api_key", event.target.value)} placeholder={settings.api_key_masked ?? `Вставь API Key из ${exchangeLabel(settings.exchange)}`} /></label>
           <label className="field">Secret Key<input type="password" value={settings.secret_key} onChange={(event) => update("secret_key", event.target.value)} placeholder={settings.secret_key_masked ?? `Вставь Secret Key из ${exchangeLabel(settings.exchange)}`} /></label>
           <label className="field">Passphrase<input type="password" value={settings.passphrase} onChange={(event) => update("passphrase", event.target.value)} placeholder={settings.passphrase_masked ?? "Нужна для OKX/KuCoin, для Binance/Gate.io обычно не нужна"} /></label>
+          <button className="btn" onClick={testExchange} disabled={saving}><ShieldCheck size={16} /> Проверить биржу</button>
         </div>
         <div className="panel-block">
           <div className="table-title">Контроль риска</div>
