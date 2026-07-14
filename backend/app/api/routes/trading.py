@@ -88,21 +88,22 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         )
     ).scalar_one()
     pnl = await PnlMetricsService().summary(db)
+    gross_exposure = float(exposure)
     exchange_connected = True
     exchange_error = None
-    try:
-        balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
-    except Exception as exc:
-        logger.exception("Failed to fetch trading status exchange balance")
-        exchange_connected = False
-        exchange_error = exchange_error_message(
-            exc,
-            exchange=user_settings.exchange,
-            market_type=settings.exchange_default_type,
-            sandbox=settings.exchange_sandbox_enabled,
-        )
-        balance = 0.0
-    gross_exposure = float(exposure)
+    balance = 0.0
+    if gross_exposure > 0:
+        try:
+            balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
+        except Exception as exc:
+            logger.exception("Failed to fetch trading status exchange balance")
+            exchange_connected = False
+            exchange_error = exchange_error_message(
+                exc,
+                exchange=user_settings.exchange,
+                market_type=settings.exchange_default_type,
+                sandbox=settings.exchange_sandbox_enabled,
+            )
     return SystemStatusOut(
         paper_trading=settings.paper_trading,
         exchange=user_settings.exchange,

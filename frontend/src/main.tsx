@@ -246,38 +246,45 @@ function DashboardView() {
   const [tick, setTick] = React.useState<TradingTick | null>(null);
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const loadSeq = React.useRef(0);
 
   const load = React.useCallback(async () => {
-    try {
-      setError("");
-      const [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes] = await Promise.allSettled([
-        api.get("/dashboard"),
-        api.get("/trading/status"),
-        api.get("/trading/guard"),
-        api.get("/trading/backtest/sample"),
-        api.get("/orders"),
-        api.get("/strategy-lab/results"),
-        api.get("/market/history/readiness"),
-        api.get("/strategy-lab/learning-rules"),
-        api.get("/strategy-lab/learning-summary")
-      ]);
-      if (dashboardRes.status === "fulfilled") setData(dashboardRes.value.data);
-      if (statusRes.status === "fulfilled") setStatus(statusRes.value.data);
-      if (guardRes.status === "fulfilled") setGuard(guardRes.value.data);
-      if (backtestRes.status === "fulfilled") setBacktest(backtestRes.value.data);
-      if (ordersRes.status === "fulfilled") setOrders(ordersRes.value.data);
-      if (optimizationsRes.status === "fulfilled") setOptimizations(optimizationsRes.value.data);
-      if (readinessRes.status === "fulfilled") setReadiness(readinessRes.value.data);
-      if (learningRes.status === "fulfilled") setLearningRules(learningRes.value.data);
-      if (learningSummaryRes.status === "fulfilled") setLearningSummary(learningSummaryRes.value.data);
+    const seq = loadSeq.current + 1;
+    loadSeq.current = seq;
+    const failures: string[] = [];
 
-      const failed = [dashboardRes, statusRes, guardRes, backtestRes, ordersRes, optimizationsRes, readinessRes, learningRes, learningSummaryRes]
-        .find((result): result is PromiseRejectedResult => result.status === "rejected");
-      if (failed) {
-        setError(`Часть данных не загрузилась: ${readError(failed.reason)}`);
+    async function request<T>(label: string, call: Promise<{ data: T }>, apply: (value: T) => void) {
+      try {
+        const response = await call;
+        if (loadSeq.current === seq) {
+          apply(response.data);
+        }
+      } catch (err) {
+        if (loadSeq.current === seq) {
+          failures.push(`${label}: ${readError(err)}`);
+        }
       }
-    } catch (err) {
-      setError(readError(err));
+    }
+
+    setError("");
+    setRefreshing(true);
+    await Promise.all([
+      request<Dashboard>("Панель", api.get<Dashboard>("/dashboard"), setData),
+      request<SystemStatus>("Статус", api.get<SystemStatus>("/trading/status"), setStatus),
+      request<PerformanceGuard>("Защита", api.get<PerformanceGuard>("/trading/guard"), setGuard),
+      request<BacktestReport>("Бэктест", api.get<BacktestReport>("/trading/backtest/sample"), setBacktest),
+      request<Order[]>("Ордера", api.get<Order[]>("/orders"), setOrders),
+      request<StrategyOptimization[]>("Оптимизация", api.get<StrategyOptimization[]>("/strategy-lab/results"), setOptimizations),
+      request<HistoryReadiness[]>("Свечи", api.get<HistoryReadiness[]>("/market/history/readiness"), setReadiness),
+      request<LearningRule[]>("Обучение", api.get<LearningRule[]>("/strategy-lab/learning-rules"), setLearningRules),
+      request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary)
+    ]);
+    if (loadSeq.current === seq) {
+      setRefreshing(false);
+      if (failures.length) {
+        setError(`Часть данных не загрузилась: ${failures[0]}`);
+      }
     }
   }, []);
 
@@ -289,7 +296,7 @@ function DashboardView() {
       setError("");
       const { data: result } = await api.post<TradingRun>("/trading/run-once");
       setRun(result);
-      await load();
+      void load();
     } catch (err) {
       setError(readError(err));
     } finally {
@@ -303,7 +310,7 @@ function DashboardView() {
       setError("");
       const { data: result } = await api.post<TradingTick>("/trading/tick");
       setTick(result);
-      await load();
+      void load();
     } catch (err) {
       setError(readError(err));
     } finally {
@@ -372,7 +379,7 @@ function DashboardView() {
   return (
     <section className="space-y-5">
       <Header title="Панель" subtitle="Портфель, риск-состояние и сводка работы бота">
-        <button className="btn" onClick={load}><RefreshCw size={16} /> Обновить</button>
+        <button className="btn" onClick={() => void load()} disabled={refreshing}><RefreshCw size={16} /> {refreshing ? "Обновляется" : "Обновить"}</button>
         <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Бэктест BTC</button>
         <button className="btn" onClick={runWalkForward} disabled={loading}><BarChart3 size={16} /> Walk-forward</button>
         <button className="btn" onClick={ingestBatchHistory} disabled={loading}><RefreshCw size={16} /> Загрузить свечи</button>
