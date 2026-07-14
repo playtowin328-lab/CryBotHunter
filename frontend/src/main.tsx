@@ -27,6 +27,16 @@ function App() {
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState("");
 
+  React.useEffect(() => {
+    function onAuthExpired() {
+      setTokenReady(false);
+      setError("Сессия истекла. Войди заново.");
+    }
+
+    window.addEventListener("auth-expired", onAuthExpired);
+    return () => window.removeEventListener("auth-expired", onAuthExpired);
+  }, []);
+
   async function login(mode: "login" | "register") {
     try {
       setError("");
@@ -40,6 +50,7 @@ function App() {
 
   function logout() {
     localStorage.removeItem("token");
+    setError("");
     setTokenReady(false);
   }
 
@@ -716,6 +727,7 @@ function SettingsView() {
   });
   const [message, setMessage] = React.useState<ActionMessage | null>(null);
   const [error, setError] = React.useState("");
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     void api.get<UserSettings>("/settings").then(({ data }) => {
@@ -748,25 +760,58 @@ function SettingsView() {
   }
 
   async function save() {
+    if (saving) {
+      return;
+    }
+
     try {
       setError("");
+      setMessage(null);
+      setSaving(true);
       const { api_key_masked, secret_key_masked, passphrase_masked, ...payload } = settings;
       void api_key_masked;
       void secret_key_masked;
       void passphrase_masked;
-      const { data } = await api.put<UserSettings>("/settings", payload);
-      setMessage({ ok: true, message: "Настройки сохранены" });
+      const { data } = await api.put<UserSettings>("/settings", {
+        ...payload,
+        api_key: payload.api_key.trim() || undefined,
+        secret_key: payload.secret_key.trim() || undefined,
+        passphrase: payload.passphrase.trim() || undefined
+      });
       setSettings((current) => ({
         ...current,
+        exchange: data.exchange,
         api_key: "",
         secret_key: "",
         passphrase: "",
         api_key_masked: data.api_key_masked ?? current.api_key_masked,
         secret_key_masked: data.secret_key_masked ?? current.secret_key_masked,
-        passphrase_masked: data.passphrase_masked ?? current.passphrase_masked
+        passphrase_masked: data.passphrase_masked ?? current.passphrase_masked,
+        risk_percent: data.risk_percent,
+        daily_risk_percent: data.daily_risk_percent,
+        max_positions: data.max_positions,
+        min_rating: data.min_rating,
+        scan_interval: data.scan_interval,
+        stop_loss_percent: data.stop_loss_percent,
+        take_profit_percent: data.take_profit_percent,
+        trailing_stop_percent: data.trailing_stop_percent,
+        atr_stop_multiplier: data.atr_stop_multiplier,
+        risk_reward_ratio: data.risk_reward_ratio,
+        breakeven_trigger_r: data.breakeven_trigger_r,
+        breakeven_offset_percent: data.breakeven_offset_percent,
+        partial_take_profit_r: data.partial_take_profit_r,
+        partial_close_percent: data.partial_close_percent
       }));
+      setMessage({
+        ok: true,
+        message: data.api_key_masked && data.secret_key_masked
+          ? `Ключи сохранены: ${data.api_key_masked}`
+          : "Настройки сохранены. Ключи не менялись."
+      });
     } catch (err) {
       setError(readError(err));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -782,7 +827,9 @@ function SettingsView() {
   return (
     <section className="space-y-5">
       <Header title="Настройки" subtitle="Ключи биржи, риск-модель и проверка Telegram">
-        <button className="btn primary" onClick={save}><Save size={16} /> Сохранить</button>
+        <button className="btn primary" onClick={save} disabled={saving}>
+          <Save size={16} /> {saving ? "Сохраняю..." : "Сохранить"}
+        </button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
       {message && <Alert tone={message.ok ? "good" : "danger"} text={message.message} />}
@@ -969,10 +1016,30 @@ function translateRegime(value: string) {
 
 function readError(err: unknown) {
   if (typeof err === "object" && err && "response" in err) {
-    const response = (err as { response?: { data?: { detail?: string } } }).response;
-    return translateError(response?.data?.detail) ?? "Запрос не выполнен";
+    const response = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response;
+    if (response?.status === 401) {
+      return "Сессия истекла. Войди заново.";
+    }
+    return formatErrorDetail(response?.data?.detail) ?? "Запрос не выполнен";
   }
   return "Запрос не выполнен";
+}
+
+function formatErrorDetail(detail: unknown) {
+  if (typeof detail === "string") {
+    return translateError(detail) ?? detail;
+  }
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      if (typeof item === "object" && item && "msg" in item) {
+        const validation = item as { loc?: Array<string | number>; msg?: string };
+        const path = validation.loc?.filter((part) => part !== "body").join(".");
+        return path ? `${path}: ${validation.msg}` : validation.msg;
+      }
+      return String(item);
+    }).filter(Boolean).join("; ");
+  }
+  return undefined;
 }
 
 function translateError(value?: string) {
@@ -983,6 +1050,7 @@ function translateError(value?: string) {
     "Incorrect email or password": "Неверный email или пароль",
     "Email already registered": "Этот email уже зарегистрирован",
     "Registration failed": "Регистрация не удалась",
+    "Invalid token": "Сессия истекла. Войди заново.",
     "Request failed": "Запрос не выполнен"
   };
   return labels[value] ?? value;
