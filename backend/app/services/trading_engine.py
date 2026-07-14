@@ -92,6 +92,9 @@ class TradingEngine:
                 if not learning.allowed:
                     accepted = False
                     reason = learning.reason
+                elif learning.risk_multiplier < 1:
+                    trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * learning.risk_multiplier, 4))
+                    reason = f"{reason}; {learning.reason}"
                 elif learning.penalty > 0:
                     reason = f"{reason}; {learning.reason}"
             if accepted:

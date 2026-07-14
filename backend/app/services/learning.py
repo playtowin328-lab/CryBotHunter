@@ -16,6 +16,7 @@ class LearningAssessment:
     allowed: bool
     penalty: float
     reason: str
+    risk_multiplier: float = 1.0
 
 
 class LearningService:
@@ -24,10 +25,25 @@ class LearningService:
     max_penalty = 5.0
     min_observations_for_block = 2
     half_life_days = 14.0
+    min_risk_multiplier = 0.35
+    blocking_feature_keys = {"setup_signature", "momentum_profile", "risk_profile"}
+    feature_weights = {
+        "setup_signature": 1.6,
+        "momentum_profile": 1.1,
+        "risk_profile": 1.0,
+        "trend_stack": 0.65,
+        "regime": 0.55,
+        "regime_score_bucket": 0.45,
+        "rating_bucket": 0.45,
+        "rsi_bucket": 0.4,
+        "atr_bucket": 0.4,
+        "macd_direction": 0.35,
+        "exit_reason": 0.25,
+    }
 
     def entry_context(self, coin: MarketCoin, signal: str, reasons: list[str]) -> dict[str, Any]:
         atr_percent = self._atr_percent(float(coin.atr), float(coin.price))
-        return {
+        context = {
             "symbol": coin.symbol,
             "side": "LONG" if signal == "BUY" else "SHORT",
             "signal": signal,
@@ -43,25 +59,55 @@ class LearningService:
             "rating_bucket": self._score_bucket(coin.rating),
             "reasons": reasons,
         }
+        context["momentum_profile"] = self._profile(context, "trend_stack", "rsi_bucket", "macd_direction")
+        context["risk_profile"] = self._profile(context, "atr_bucket", "regime_score_bucket", "rating_bucket")
+        context["setup_signature"] = self._profile(
+            context,
+            "regime",
+            "trend_stack",
+            "rsi_bucket",
+            "macd_direction",
+            "rating_bucket",
+        )
+        return context
 
     async def assess_entry(self, db: AsyncSession, coin: MarketCoin, signal: str) -> LearningAssessment:
         side = "LONG" if signal == "BUY" else "SHORT"
         features = self._features_from_context(self.entry_context(coin, signal, []))
         total_penalty = 0.0
-        matched: list[str] = []
+        matched: list[tuple[LearningRule, float, str]] = []
         for scope in ("GLOBAL", coin.symbol):
             rules = await self._rules_for(db, scope, side, features)
             for rule in rules:
-                if rule.penalty > 0:
-                    weight = 1.0 if scope == "GLOBAL" else 1.25
-                    confidence = self.rule_confidence(rule.observations, rule.updated_at)
-                    effective_penalty = rule.penalty * weight * confidence
+                effective_penalty = self.effective_penalty(rule, scope)
+                if effective_penalty > 0:
                     total_penalty += effective_penalty
-                    matched.append(f"{rule.feature_key}={rule.feature_value}:{effective_penalty:.2f}")
-        if total_penalty >= self.block_threshold:
-            return LearningAssessment(False, round(total_penalty, 2), f"learning guard blocked similar losing setup ({', '.join(matched[:4])})")
+                    label = f"{rule.feature_key}={rule.feature_value}:{effective_penalty:.2f}"
+                    matched.append((rule, effective_penalty, label))
+        matched.sort(key=lambda item: item[1], reverse=True)
+        match_summary = ", ".join(label for _rule, _penalty, label in matched[:4])
+        if total_penalty >= self.block_threshold and self._has_block_evidence(matched):
+            return LearningAssessment(
+                False,
+                round(total_penalty, 2),
+                f"learning guard blocked repeated losing setup ({match_summary})",
+                0.0,
+            )
         if total_penalty >= self.warn_threshold:
-            return LearningAssessment(True, round(total_penalty, 2), f"learning guard warning: similar setup has losses ({', '.join(matched[:4])})")
+            risk_multiplier = self.risk_multiplier_for_penalty(total_penalty)
+            return LearningAssessment(
+                True,
+                round(total_penalty, 2),
+                f"learning guard reduced risk to {risk_multiplier:.2f}x after similar losses ({match_summary})",
+                risk_multiplier,
+            )
+        if total_penalty > 0:
+            return LearningAssessment(
+                True,
+                round(total_penalty, 2),
+                f"learning guard noted weak risk memory ({match_summary})",
+                1.0,
+            )
         return LearningAssessment(True, round(total_penalty, 2), "learning guard passed")
 
     async def record_closed_position(self, db: AsyncSession, position: Position, profit: float, reason: str) -> None:
@@ -172,8 +218,60 @@ class LearningService:
             "trend_stack",
             "macd_direction",
             "rating_bucket",
+            "momentum_profile",
+            "risk_profile",
+            "setup_signature",
         ]
         return [(key, str(context[key])) for key in feature_keys if context.get(key) is not None]
+
+    def effective_penalty(self, rule: LearningRule, scope: str) -> float:
+        if rule.penalty <= 0:
+            return 0.0
+        confidence = self.rule_confidence(rule.observations, rule.updated_at)
+        if confidence <= 0:
+            return 0.0
+        scope_weight = 1.0 if scope == "GLOBAL" else 1.2
+        return round(
+            rule.penalty
+            * confidence
+            * scope_weight
+            * self.feature_weight(rule.feature_key)
+            * self.outcome_weight(rule),
+            4,
+        )
+
+    def feature_weight(self, feature_key: str) -> float:
+        return self.feature_weights.get(feature_key, 0.4)
+
+    def outcome_weight(self, rule: LearningRule) -> float:
+        observations = max(int(rule.observations or 0), 0)
+        if observations <= 0:
+            return 0.0
+        losses = max(int(rule.losses or 0), 0)
+        wins = max(int(rule.wins or 0), 0)
+        loss_rate = losses / observations
+        if losses <= wins and float(rule.total_profit or 0) >= 0:
+            return 0.25
+        if loss_rate < 0.4:
+            return 0.4
+        return round(0.7 + min(loss_rate, 1.0) * 0.3, 4)
+
+    def risk_multiplier_for_penalty(self, penalty: float) -> float:
+        if penalty < self.warn_threshold:
+            return 1.0
+        span = max(self.block_threshold - self.warn_threshold, 0.01)
+        severity = min(max((penalty - self.warn_threshold) / span, 0.0), 1.0)
+        return round(max(self.min_risk_multiplier, 0.75 - severity * (0.75 - self.min_risk_multiplier)), 2)
+
+    def _has_block_evidence(self, matched: list[tuple[LearningRule, float, str]]) -> bool:
+        for rule, _penalty, _label in matched:
+            if rule.feature_key not in self.blocking_feature_keys:
+                continue
+            if rule.observations < self.min_observations_for_block:
+                continue
+            if rule.losses > rule.wins:
+                return True
+        return False
 
     def _atr_percent(self, atr: float, price: float) -> float:
         return atr / price * 100 if price > 0 else 0
@@ -213,3 +311,6 @@ class LearningService:
         if coin.ema20 < coin.ema50 < coin.ema200:
             return "bearish"
         return "mixed"
+
+    def _profile(self, context: dict[str, Any], *keys: str) -> str:
+        return "|".join(str(context.get(key, "unknown")) for key in keys)

@@ -992,6 +992,9 @@ function translateFeature(value: string) {
     trend_stack: "EMA структура",
     macd_direction: "MACD",
     rating_bucket: "Рейтинг",
+    momentum_profile: "Профиль импульса",
+    risk_profile: "Профиль риска",
+    setup_signature: "Сетап",
     exit_reason: "Причина выхода"
   };
   return labels[value] ?? value;
@@ -1006,7 +1009,10 @@ function translateRiskLevel(value: string) {
   return labels[value] ?? value;
 }
 
-function translateFeatureValue(value: string) {
+function translateFeatureValue(value: string): string {
+  if (value.includes("|")) {
+    return value.split("|").map((part) => translateFeatureValue(part)).join(" / ");
+  }
   const labels: Record<string, string> = {
     TRENDING_UP: "Рост",
     TRENDING_DOWN: "Падение",
