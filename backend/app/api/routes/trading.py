@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +16,7 @@ from app.services.locks import RedisLockManager
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.risk_manager import RiskManager, RiskSettings
-from app.services.exchange import ExchangeClient
+from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.trading_engine import TradingEngine
 
 router = APIRouter(prefix="/trading", tags=["trading"])
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 @router.post("/run-once", response_model=TradingRunOut)
 async def run_once(user: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> TradingRunOut:
+    runtime_settings = get_settings()
     paused, _reason = await TradingControlService().is_paused()
     if paused:
         return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
@@ -49,7 +50,19 @@ async def run_once(user: User = Depends(current_user), db: AsyncSession = Depend
         if not acquired:
             return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
         exchange = ExchangeClient.from_user_settings(user_settings)
-        return await TradingEngine(exchange).run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+        try:
+            return await TradingEngine(exchange).run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+        except Exception as exc:
+            logger.exception("Trading scan failed")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=exchange_error_message(
+                    exc,
+                    exchange=user_settings.exchange,
+                    market_type=runtime_settings.exchange_default_type,
+                    sandbox=runtime_settings.exchange_sandbox_enabled,
+                ),
+            ) from exc
 
 
 @router.post("/tick", response_model=TradingTickOut)
@@ -75,15 +88,28 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         )
     ).scalar_one()
     pnl = await PnlMetricsService().summary(db)
+    exchange_connected = True
+    exchange_error = None
     try:
         balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to fetch trading status exchange balance")
+        exchange_connected = False
+        exchange_error = exchange_error_message(
+            exc,
+            exchange=user_settings.exchange,
+            market_type=settings.exchange_default_type,
+            sandbox=settings.exchange_sandbox_enabled,
+        )
         balance = 0.0
     gross_exposure = float(exposure)
     return SystemStatusOut(
         paper_trading=settings.paper_trading,
         exchange=user_settings.exchange,
+        exchange_connected=exchange_connected,
+        exchange_error=exchange_error,
+        exchange_market_type=settings.exchange_default_type,
+        exchange_sandbox_enabled=settings.exchange_sandbox_enabled,
         telegram_enabled=bool(settings.telegram_bot_token),
         telegram_chat_count=len(settings.telegram_allowed_chat_ids),
         open_positions=int(open_positions),

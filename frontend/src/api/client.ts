@@ -109,6 +109,10 @@ export type TradingTick = {
 export type SystemStatus = {
   paper_trading: boolean;
   exchange: string;
+  exchange_connected: boolean;
+  exchange_error?: string | null;
+  exchange_market_type: string;
+  exchange_sandbox_enabled: boolean;
   telegram_enabled: boolean;
   telegram_chat_count: number;
   open_positions: number;

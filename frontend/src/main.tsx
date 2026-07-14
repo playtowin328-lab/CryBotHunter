@@ -381,9 +381,14 @@ function DashboardView() {
         <button className="btn primary" onClick={runTrading} disabled={loading}><Play size={16} /> {loading ? "Запуск" : "Сканировать"}</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
+      {status?.exchange_error && <Alert tone="danger" text={`Биржа: ${status.exchange_error}`} />}
       <div className="status-strip">
         <StatusItem label="Режим" value={status?.paper_trading ? "Paper-торговля" : "Live-торговля"} good={status?.paper_trading ?? true} />
-        <StatusItem label="Биржа" value={status?.exchange ?? "-"} />
+        <StatusItem
+          label="Биржа"
+          value={status ? `${status.exchange} / ${status.exchange_market_type} / ${status.exchange_sandbox_enabled ? "sandbox" : "real"}` : "-"}
+          good={status?.exchange_connected ?? true}
+        />
         <StatusItem label="Telegram" value={status?.telegram_enabled ? `${status.telegram_chat_count} чат` : "Отключен"} good={Boolean(status?.telegram_enabled)} />
         <StatusItem label="Открытые позиции" value={String(status?.open_positions ?? 0)} />
         <StatusItem

@@ -9,6 +9,25 @@ from app.core.security import decrypt_secret
 from app.models.entities import UserSettings
 
 
+def exchange_error_message(exc: Exception, exchange: str, market_type: str, sandbox: bool) -> str:
+    mode = "sandbox" if sandbox else "real"
+    suffix = f"Exchange={exchange}, market={market_type}, mode={mode}."
+    if isinstance(exc, RuntimeError):
+        return f"{exc} {suffix}"
+    if isinstance(exc, ccxt.AuthenticationError):
+        return (
+            "Биржа не приняла API key/secret. Проверь ключи, IP whitelist, права ключа "
+            f"и совпадение sandbox/live режима. {suffix}"
+        )
+    if isinstance(exc, ccxt.PermissionDenied):
+        return f"У API ключа не хватает прав для запроса баланса. Проверь права в кабинете биржи. {suffix}"
+    if isinstance(exc, ccxt.NetworkError):
+        return f"Биржа сейчас недоступна по сети или запрос заблокирован. {suffix}"
+    if isinstance(exc, ccxt.BaseError):
+        return f"Биржа ответила ошибкой: {str(exc)[:240]} {suffix}"
+    return f"Проверка биржи не удалась: {str(exc)[:240]} {suffix}"
+
+
 @dataclass(frozen=True)
 class PreparedOrder:
     amount: float
