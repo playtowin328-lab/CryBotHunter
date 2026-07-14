@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry, UserSettings
+from app.safety_manager import SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.locks import RedisLockManager
@@ -14,17 +15,25 @@ from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
+    configure_stdout_logging()
+    shutdown = ShutdownController()
+    shutdown.install()
+    await SafetyManager().run_or_exit()
+    if shutdown.requested:
+        return
+
     settings = get_settings()
     locks = RedisLockManager()
     control = TradingControlService()
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
-    while True:
+    while not shutdown.requested:
         current_exchange = settings.default_exchange
+        exchange: ExchangeClient | None = None
+        delay = settings.trader_loop_seconds
         try:
             async with AsyncSessionLocal() as db:
                 async with locks.lock("trader-worker-loop", ttl_seconds=max(settings.trader_loop_seconds - 5, 10)) as acquired:
@@ -33,36 +42,34 @@ async def main() -> None:
                         if not user_settings:
                             db.add(LogEntry(level="WARNING", message="Trader worker is waiting for the first user settings row"))
                             await db.commit()
-                            await asyncio.sleep(settings.trader_loop_seconds)
-                            continue
-                        current_exchange = user_settings.exchange
-                        exchange = ExchangeClient.from_user_settings(user_settings)
-                        engine = TradingEngine(exchange)
-                        reconciliation = OrderReconciliationService(exchange)
-                        await engine.manage_open_positions(db)
-                        await reconciliation.reconcile(db)
-                        paused, reason = await control.is_paused()
-                        if paused:
-                            logger.warning("Trader worker entry scan paused: %s", reason)
-                            await asyncio.sleep(settings.trader_loop_seconds)
-                            continue
-                        risk_settings = RiskSettings(
-                            balance=1000,
-                            risk_percent=user_settings.risk_percent,
-                            daily_risk_percent=user_settings.daily_risk_percent,
-                            max_positions=user_settings.max_positions,
-                            min_rating=user_settings.min_rating,
-                            stop_loss_percent=user_settings.stop_loss_percent,
-                            take_profit_percent=user_settings.take_profit_percent,
-                            trailing_stop_percent=user_settings.trailing_stop_percent,
-                            atr_stop_multiplier=user_settings.atr_stop_multiplier,
-                            risk_reward_ratio=user_settings.risk_reward_ratio,
-                            breakeven_trigger_r=user_settings.breakeven_trigger_r,
-                            breakeven_offset_percent=user_settings.breakeven_offset_percent,
-                            partial_take_profit_r=user_settings.partial_take_profit_r,
-                            partial_close_percent=user_settings.partial_close_percent,
-                        )
-                        await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+                        else:
+                            current_exchange = user_settings.exchange
+                            exchange = ExchangeClient.from_user_settings(user_settings)
+                            engine = TradingEngine(exchange)
+                            reconciliation = OrderReconciliationService(exchange)
+                            await engine.manage_open_positions(db)
+                            await reconciliation.reconcile(db)
+                            paused, reason = await control.is_paused()
+                            if paused:
+                                logger.warning("Trader worker entry scan paused: %s", reason)
+                            elif not shutdown.requested:
+                                risk_settings = RiskSettings(
+                                    balance=1000,
+                                    risk_percent=user_settings.risk_percent,
+                                    daily_risk_percent=user_settings.daily_risk_percent,
+                                    max_positions=user_settings.max_positions,
+                                    min_rating=user_settings.min_rating,
+                                    stop_loss_percent=user_settings.stop_loss_percent,
+                                    take_profit_percent=user_settings.take_profit_percent,
+                                    trailing_stop_percent=user_settings.trailing_stop_percent,
+                                    atr_stop_multiplier=user_settings.atr_stop_multiplier,
+                                    risk_reward_ratio=user_settings.risk_reward_ratio,
+                                    breakeven_trigger_r=user_settings.breakeven_trigger_r,
+                                    breakeven_offset_percent=user_settings.breakeven_offset_percent,
+                                    partial_take_profit_r=user_settings.partial_take_profit_r,
+                                    partial_close_percent=user_settings.partial_close_percent,
+                                )
+                                await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
         except ccxt.BaseError as exc:
             message = exchange_error_message(
                 exc,
@@ -72,11 +79,15 @@ async def main() -> None:
             )
             logger.error("Trader worker exchange unavailable: %s", message)
             await _record_worker_log(message)
-            await asyncio.sleep(max(settings.trader_loop_seconds, 300))
-            continue
+            delay = max(settings.trader_loop_seconds, 300)
         except Exception:
             logger.exception("Trader worker loop failed")
-        await asyncio.sleep(settings.trader_loop_seconds)
+        finally:
+            if exchange is not None:
+                await exchange.close()
+        if await shutdown.wait(delay):
+            break
+    logger.info("Trader worker shutdown complete")
 
 
 async def _record_worker_log(message: str) -> None:

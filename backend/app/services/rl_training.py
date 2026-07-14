@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Callable
 
 import numpy as np
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_checker import check_env
 
 from app.core.config import get_settings
@@ -19,10 +21,27 @@ from app.services.rl_environment import FEATURE_NAMES, CryptoTradingEnv, build_f
 ACTION_NAMES = ("WAIT", "BUY", "SELL")
 
 
+class RlTrainingInterrupted(RuntimeError):
+    pass
+
+
+class ShutdownCallback(BaseCallback):
+    def __init__(self, stop_requested: Callable[[], bool]) -> None:
+        super().__init__(verbose=0)
+        self.stop_requested = stop_requested
+
+    def _on_step(self) -> bool:
+        return not self.stop_requested()
+
+
 class RlTrainingService:
-    def __init__(self) -> None:
+    def __init__(self, stop_requested: Callable[[], bool] | None = None) -> None:
         self.settings = get_settings()
         self.history = HistoricalDataService()
+        self.stop_requested = stop_requested or (lambda: False)
+
+    async def close(self) -> None:
+        await self.history.exchange.close()
 
     async def needs_refresh(self, db: AsyncSession, symbol: str, timeframe: str) -> bool:
         active = await self.active_for(db, symbol, timeframe)
@@ -62,6 +81,7 @@ class RlTrainingService:
 
         candidates: list[tuple[float, PPO, dict]] = []
         for seed in self.settings.rl_training_seeds:
+            self._raise_if_stopping()
             model = PPO(
                 "MlpPolicy",
                 self._environment(train_frame),
@@ -76,7 +96,12 @@ class RlTrainingService:
                 device="cpu",
                 verbose=0,
             )
-            model.learn(total_timesteps=max(self.settings.rl_training_timesteps, 1_000), progress_bar=False)
+            model.learn(
+                total_timesteps=max(self.settings.rl_training_timesteps, 1_000),
+                progress_bar=False,
+                callback=ShutdownCallback(self.stop_requested),
+            )
+            self._raise_if_stopping()
             metrics = self._evaluate(model, validation_frame)
             metrics["seed"] = seed
             score = (
@@ -120,6 +145,10 @@ class RlTrainingService:
         await db.refresh(record)
         return record
 
+    def _raise_if_stopping(self) -> None:
+        if self.stop_requested():
+            raise RlTrainingInterrupted("RL training interrupted by shutdown request")
+
     async def publish_active_decision(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> AgentDecision | None:
         model_record = await self.active_for(db, symbol, timeframe)
         if not model_record or not model_record.artifact:
@@ -156,6 +185,7 @@ class RlTrainingService:
         truncated = False
         info = env.metrics()
         while not (terminated or truncated):
+            self._raise_if_stopping()
             action, _ = model.predict(observation, deterministic=True)
             observation, _, terminated, truncated, info = env.step(int(action))
         return dict(info)

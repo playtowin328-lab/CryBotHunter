@@ -63,6 +63,7 @@ class ExchangeClient:
         self.api_key = api_key
         self.secret_key = secret_key
         self.passphrase = passphrase
+        self._clients: list[ccxt.Exchange] = []
 
     @classmethod
     def from_user_settings(cls, settings: UserSettings) -> "ExchangeClient":
@@ -185,7 +186,20 @@ class ExchangeClient:
         client = exchange_class(params)
         if authenticated and self.settings.exchange_sandbox_enabled and hasattr(client, "set_sandbox_mode"):
             client.set_sandbox_mode(True)
+        self._clients.append(client)
         return client
+
+    async def close(self) -> None:
+        clients, self._clients = self._clients, []
+        for client in clients:
+            close = getattr(client, "close", None)
+            if not callable(close):
+                continue
+            try:
+                await asyncio.to_thread(close)
+            except Exception:
+                # Shutdown must continue even if an exchange transport is already gone.
+                continue
 
     def _assert_live_safety(self) -> None:
         if self.settings.exchange_sandbox_enabled:

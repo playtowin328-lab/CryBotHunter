@@ -107,6 +107,11 @@ MARKET_DATA_MODE=ccxt
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
+SAFETY_CHECK_ENABLED=true
+SAFETY_CHECK_SYMBOL=BTC/USDT
+SAFETY_RETRY_ATTEMPTS=5
+SAFETY_RETRY_INITIAL_SECONDS=2
+SAFETY_RETRY_MAX_SECONDS=30
 AI_COMMITTEE_ENABLED=true
 AI_COMMITTEE_MIN_CONSENSUS=0.66
 MAX_GROSS_EXPOSURE_PERCENT=300
@@ -135,6 +140,17 @@ CANDLE_DATASET_TARGET=5000
 
 For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
+For a live `trader-worker`, add the same exchange credentials that were saved through the web settings as Railway worker secrets and enable the private pre-flight:
+
+```env
+API_KEY=your-exchange-api-key
+API_SECRET=your-exchange-secret
+SAFETY_REQUIRE_API_CREDENTIALS=true
+SAFETY_VALIDATE_PRIVATE_API=true
+```
+
+Do not add exchange secrets to the frontend or RL worker. In paper mode the pre-flight reads real public Binance time and `BTC/USDT` ticker data, but orders and balances remain virtual. In live mode it logs a prominent warning, requires both credentials, and validates them with `fetch_balance`. Invalid environment values, malformed exchange data, authentication failures, or exhausted network retries terminate the worker with exit code `1`, so Railway cannot start trading in a partially configured state. `SIGTERM` and `SIGINT` stop future loop iterations, interrupt PPO training through a Stable Baselines3 callback, and close tracked CCXT clients.
+
 RL worker variables:
 
 ```env
@@ -158,6 +174,11 @@ RL_MIN_TRAINING_CANDLES=2000
 RL_TRAINING_SEEDS=7,29
 RL_REFRESH_HOURS=24
 RL_PREDICTION_LOOP_SECONDS=300
+SAFETY_CHECK_ENABLED=true
+SAFETY_CHECK_SYMBOL=BTC/USDT
+SAFETY_RETRY_ATTEMPTS=5
+SAFETY_RETRY_INITIAL_SECONDS=2
+SAFETY_RETRY_MAX_SECONDS=30
 RL_VALIDATION_PERCENT=25
 RL_MIN_VALIDATION_RETURN_PERCENT=0
 RL_MIN_VALIDATION_PROFIT_FACTOR=1.05
@@ -169,6 +190,8 @@ RL_WAIT_RISK_MULTIPLIER=0.5
 ```
 
 The RL service needs no Binance API key because OHLCV is public. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
+
+You can run only the critical pre-flight locally or in a Railway shell with `python -m app.safety_manager`. The `rl` and `trader` entry points run it automatically before starting their work loops; Stable Baselines3 is imported only after the check passes.
 
 Use `POST /api/v1/market/history/ingest` to persist OHLCV candles for one symbol, `POST /api/v1/market/history/ingest/batch` for configured symbols, and `GET /api/v1/market/history/readiness` to inspect dataset coverage for backtesting and future ML datasets.
 
