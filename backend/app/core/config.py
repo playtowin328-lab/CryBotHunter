@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     market_quality_max_spread_bps: float = 25.0
     market_quality_max_price_change_percent: float = 18.0
     market_quality_min_risk_multiplier: float = 0.5
+    loss_cooldown_enabled: bool = True
+    loss_cooldown_symbol_hours: float = 6.0
+    loss_cooldown_global_hours: float = 3.0
+    loss_cooldown_loss_streak: int = 2
+    loss_cooldown_min_loss: float = 0.0
     strategy_optimizer_apply_enabled: bool = True
     strategy_optimizer_min_profit_factor: float = 1.05
     strategy_optimizer_min_trades: int = 3

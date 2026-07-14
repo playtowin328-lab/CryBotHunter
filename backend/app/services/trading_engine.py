@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
 from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.agents import AgentOrchestrator
+from app.services.cooldown import LossCooldownGuard
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
 from app.services.learning import LearningService
@@ -32,6 +33,7 @@ class TradingEngine:
         self.risk = RiskManager()
         self.execution = ExecutionService(self.exchange)
         self.guard = PerformanceGuardService()
+        self.cooldown_guard = LossCooldownGuard()
         self.pnl_metrics = PnlMetricsService()
         self.quality_gate = PreTradeQualityGate()
         self.agents = AgentOrchestrator()
@@ -79,6 +81,11 @@ class TradingEngine:
                 accepted, reason = self.risk.can_open(signal, trade_settings, open_count, daily_pnl)
                 if accepted and optimizer_reason:
                     reason = f"{reason}; {optimizer_reason}"
+            if accepted:
+                cooldown = await self.cooldown_guard.assess(db, coin.symbol)
+                if not cooldown.allowed:
+                    accepted = False
+                    reason = cooldown.reason
             if accepted:
                 learning = await self.learning.assess_entry(db, coin, signal.signal)
                 if not learning.allowed:
