@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from stable_baselines3.common.env_checker import check_env
+import pytest
+
+pytest.importorskip("gymnasium")
+check_env = pytest.importorskip("stable_baselines3.common.env_checker").check_env
 
 from app.services.rl_environment import CryptoTradingEnv, build_feature_frame
 

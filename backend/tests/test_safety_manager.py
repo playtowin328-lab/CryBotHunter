@@ -5,7 +5,6 @@ import ccxt
 import pytest
 
 from app.safety_manager import SafetyManager, ShutdownController
-from app.services.rl_training import ShutdownCallback
 
 
 SAFETY_ENVIRONMENT = (
@@ -157,6 +156,9 @@ def test_rl_worker_does_not_import_stable_baselines_service_at_module_load():
 
 
 def test_stable_baselines_callback_stops_immediately_after_shutdown_flag():
+    pytest.importorskip("stable_baselines3")
+    from app.services.rl_training import ShutdownCallback
+
     shutdown = ShutdownController()
     callback = ShutdownCallback(lambda: shutdown.requested)
 
