@@ -13,7 +13,7 @@ from app.services.history import HistoricalDataService
 from app.services.locks import RedisLockManager
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
-from app.services.risk_manager import RiskSettings
+from app.services.risk_manager import RiskManager, RiskSettings
 from app.services.exchange import ExchangeClient
 from app.services.trading_engine import TradingEngine
 
@@ -72,7 +72,7 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         )
     ).scalar_one()
     pnl = await PnlMetricsService().summary(db)
-    balance = 1000
+    balance = (await ExchangeClient.from_user_settings(user_settings).get_balance()).get("USDT", 0.0)
     gross_exposure = float(exposure)
     return SystemStatusOut(
         paper_trading=settings.paper_trading,
@@ -86,7 +86,7 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
         ai_committee_enabled=settings.ai_committee_enabled,
         ai_committee_min_consensus=settings.ai_committee_min_consensus,
         gross_exposure=gross_exposure,
-        gross_exposure_percent=round(gross_exposure / balance * 100, 2),
+        gross_exposure_percent=RiskManager().exposure_percent(gross_exposure, balance),
         max_gross_exposure_percent=settings.max_gross_exposure_percent,
         max_symbol_exposure_percent=settings.max_symbol_exposure_percent,
     )

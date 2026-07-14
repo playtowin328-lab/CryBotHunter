@@ -56,6 +56,11 @@ class RiskManager:
     def position_notional(self, price: float, volume: float) -> float:
         return round(abs(price * volume), 4)
 
+    def exposure_percent(self, exposure: float, balance: float) -> float:
+        if balance <= 0:
+            return 0.0
+        return round(exposure / balance * 100, 2)
+
     def can_add_exposure(
         self,
         balance: float,

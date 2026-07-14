@@ -66,6 +66,13 @@ def test_position_size_uses_loss_budget():
     assert size == 5
 
 
+def test_exposure_percent_uses_balance_and_handles_zero_balance():
+    manager = RiskManager()
+
+    assert manager.exposure_percent(exposure=250, balance=1000) == 25
+    assert manager.exposure_percent(exposure=250, balance=0) == 0
+
+
 def test_exposure_guard_blocks_gross_limit():
     accepted, reason = RiskManager().can_add_exposure(
         balance=1000,

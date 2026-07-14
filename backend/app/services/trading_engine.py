@@ -43,6 +43,7 @@ class TradingEngine:
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings, timeframe: str = "1h") -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
+        settings = self._settings_with_balance(settings, balance)
         coins = await self.scanner.scan()
         guard = await self.guard.evaluate(db)
         if not guard.allowed:
@@ -532,6 +533,9 @@ class TradingEngine:
 
     async def _daily_pnl(self, db: AsyncSession) -> float:
         return (await self.pnl_metrics.summary(db)).pnl_day
+
+    def _settings_with_balance(self, settings: RiskSettings, balance: float) -> RiskSettings:
+        return replace(settings, balance=max(float(balance), 0.0))
 
     async def _portfolio_exposure(self, db: AsyncSession) -> dict:
         result = await db.execute(select(Position).where(Position.status == "OPEN"))

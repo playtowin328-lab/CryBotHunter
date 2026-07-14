@@ -239,3 +239,11 @@ def test_total_closed_profit_includes_partial_profit_and_entry_fee():
 
     assert final_trade_profit == 5.86
     assert total_profit == 9.81
+
+
+def test_trading_engine_rebases_risk_settings_to_actual_balance():
+    engine = TradingEngine()
+
+    updated = engine._settings_with_balance(risk_settings(), 2500)
+
+    assert updated.balance == 2500
