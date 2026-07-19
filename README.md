@@ -19,6 +19,14 @@ MVP scaffold for an automated crypto trading system with FastAPI, PostgreSQL, Re
 docker compose up --build
 ```
 
+To start the complete background pipeline (Telegram, automatic trader,
+candle ingestion, optimizer, and RL trainer), enable the shared worker
+profile:
+
+```bash
+docker compose --profile workers up --build
+```
+
 Open:
 
 - Frontend: http://localhost:5173
@@ -36,6 +44,7 @@ Create one Railway project with these services:
 - `telegram-bot` worker service from this GitHub repository with root directory `backend`
 - `trader-worker` worker service from this GitHub repository with root directory `backend`
 - `candle-worker` worker service from this GitHub repository with root directory `backend`
+- `optimizer-worker` worker service from this GitHub repository with root directory `backend`
 - `rl-worker` worker service from this GitHub repository with root directory `backend` and Dockerfile `Dockerfile.rl`
 
 Backend variables:
@@ -46,6 +55,7 @@ ENVIRONMENT=production
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 REDIS_URL=${{Redis.REDIS_URL}}
 JWT_SECRET=replace-with-long-random-secret
+REGISTRATION_ENABLED=false
 ENCRYPTION_KEY=fernet-key-generated-for-production
 PAPER_TRADING=true
 LIVE_TRADING_ENABLED=false
@@ -136,6 +146,22 @@ CANDLE_INGEST_LOOP_SECONDS=300
 CANDLE_DATASET_TARGET=5000
 ```
 
+Optimizer worker variables:
+
+```env
+APP_PROCESS=optimizer
+ENVIRONMENT=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=the-same-secret-as-backend
+ENCRYPTION_KEY=the-same-fernet-key-as-backend
+STRATEGY_OPTIMIZER_WORKER_ENABLED=true
+STRATEGY_OPTIMIZER_LOOP_SECONDS=21600
+STRATEGY_OPTIMIZER_REFRESH_HOURS=24
+STRATEGY_OPTIMIZER_LIMIT=800
+STRATEGY_OPTIMIZER_TOP_N=5
+```
+
 `PAPER_TRADING=true` controls order execution only. Paper orders and balances remain virtual while `MARKET_DATA_MODE=ccxt` reads real public exchange prices and candles. The legacy value `MARKET_DATA_MODE=paper` is treated as the same real public feed for backward compatibility. Synthetic data is available only with the explicit value `MARKET_DATA_MODE=synthetic` and must never be used by the RL trainer.
 
 For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
@@ -187,7 +213,11 @@ RL_GATE_MAX_AGE_HOURS=6
 RL_WAIT_RISK_MULTIPLIER=0.5
 ```
 
-The RL service needs no Binance API key because OHLCV is public. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
+The RL service needs no Binance API key because OHLCV is public. Set its Railway Config File to `/backend/railway.rl.toml`; this selects `Dockerfile.rl`. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
+
+Only the `backend` and `frontend` services need public domains. Worker services should remain private. The web process runs Alembic migrations by default; background workers skip migrations to avoid concurrent schema upgrades. Override this only with an explicit `RUN_MIGRATIONS=true`.
+
+Registration is owner-only by default: the first account can register on an empty database, then `/auth/register` is closed. Temporarily set `REGISTRATION_ENABLED=true` only when deliberately adding another trusted operator.
 
 You can run only the critical pre-flight locally or in a Railway shell with `python -m app.safety_manager`. The `rl` and `trader` entry points run it automatically before starting their work loops; Stable Baselines3 is imported only after the check passes.
 
@@ -203,7 +233,9 @@ Use `GET /health/deep` to check database, Redis, panic state, paper mode, market
 
 Use `POST /api/v1/trading/panic` to pause new entries and `POST /api/v1/trading/resume` to resume them. Telegram supports `/panic` and `/resume`.
 
-Generate public domains in each Railway service under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
+Dynamic risk defaults are configured with `MAX_POSITION_SIZE_PERCENT=25` and `MAX_DRAWDOWN_PERCENT=5`. Closed trades are mirrored asynchronously to SQLite at `TRADE_MEMORY_SQLITE_PATH=data/trade_memory.sqlite3`; PostgreSQL remains the primary transactional database.
+
+Generate public domains for the backend and frontend services under Settings -> Networking. Keep `PAPER_TRADING=true` until live exchange execution has been reviewed and tested.
 
 Generate `ENCRYPTION_KEY` with:
 
@@ -250,6 +282,9 @@ Supported commands:
 - Blocks entries when portfolio or single-symbol exposure exceeds configured limits.
 - Uses the AI Trade Committee as an optional final entry gate before opening positions.
 - Opens positions with ATR-aware stop/take planning and moves stops to breakeven after configured R-multiple progress.
+- Produces a normalized `[-1, 1]` RSI/ATR/SMA market-context vector suitable for Stable Baselines3 observations.
+- Caps each new position by both loss budget and configured deposit percentage.
+- Switches to `Only Close`, sends a critical Telegram alert, and emergency-closes open positions when portfolio drawdown reaches the configured threshold.
 - Takes partial profit at a configured R-multiple, reduces remaining exposure, and lets the rest run with breakeven/trailing logic.
 - Sends Telegram notifications when a paper position is opened.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
@@ -267,7 +302,7 @@ Supported commands:
 - Provides deep health checks through `/health/deep`.
 - Blocks new entries through a performance guard when recent win rate, loss streak, or total profit falls below thresholds.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
-- Persists positions, trades, signals, settings, and logs.
+- Persists positions, trades, signals, settings, and logs in PostgreSQL and mirrors completed trades into asynchronous SQLite memory.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.
 
 ## Next Production Steps

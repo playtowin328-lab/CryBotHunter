@@ -57,6 +57,7 @@ class LearningService:
             "trend_stack": self._trend_stack(coin),
             "macd_direction": "positive" if coin.macd > 0 else "negative" if coin.macd < 0 else "flat",
             "rating_bucket": self._score_bucket(coin.rating),
+            "market_context": coin.market_context,
             "reasons": reasons,
         }
         context["momentum_profile"] = self._profile(context, "trend_stack", "rsi_bucket", "macd_direction")

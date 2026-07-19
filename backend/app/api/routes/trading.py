@@ -130,13 +130,17 @@ async def status(user: User = Depends(current_user), db: AsyncSession = Depends(
 
 @router.post("/panic", response_model=ActionMessage)
 async def panic(_: User = Depends(current_user), reason: str = "manual") -> ActionMessage:
-    await TradingControlService().panic(reason)
+    applied = await TradingControlService().panic(reason)
+    if not applied:
+        return ActionMessage(ok=False, message="Redis unavailable; panic state could not be persisted. Trading remains fail-closed.")
     return ActionMessage(ok=True, message=f"Trading entry scans paused: {reason}")
 
 
 @router.post("/resume", response_model=ActionMessage)
 async def resume(_: User = Depends(current_user)) -> ActionMessage:
-    await TradingControlService().resume()
+    applied = await TradingControlService().resume()
+    if not applied:
+        return ActionMessage(ok=False, message="Redis unavailable; trading remains fail-closed.")
     return ActionMessage(ok=True, message="Trading entry scans resumed")
 
 

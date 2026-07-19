@@ -68,10 +68,12 @@ class TelegramCommandService:
         if command == "/stop":
             return "Notifications stay controlled by Railway variables. Stop the telegram service to disable polling."
         if command == "/panic":
-            await TradingControlService().panic("telegram")
+            if not await TradingControlService().panic("telegram"):
+                return "Redis unavailable. Panic state could not be persisted; trading remains fail-closed."
             return "PANIC enabled. New entries are paused. Open positions will still be managed."
         if command == "/resume":
-            await TradingControlService().resume()
+            if not await TradingControlService().resume():
+                return "Redis unavailable. Trading remains fail-closed."
             return "Trading resumed. New entries are allowed again."
         if command == "/status":
             settings = get_settings()

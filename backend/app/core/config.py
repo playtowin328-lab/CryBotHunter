@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me-in-production")
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    registration_enabled: bool = False
     encryption_key: str = Field(default="replace-with-valid-fernet-key")
 
     cors_origins_raw: str = Field(default="http://localhost:5173,http://localhost:8080", validation_alias="CORS_ORIGINS")
@@ -58,6 +59,9 @@ class Settings(BaseSettings):
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
+    max_position_size_percent: float = 25.0
+    max_drawdown_percent: float = 5.0
+    trade_memory_sqlite_path: str = "data/trade_memory.sqlite3"
     max_same_side_positions: int = 2
     directional_risk_reduction_start: int = 1
     directional_risk_multiplier: float = 0.5

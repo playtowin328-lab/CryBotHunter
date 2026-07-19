@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+
+import pytest
+
 from app.models.entities import Position
 from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin
 from app.services.risk_manager import RiskSettings
@@ -247,3 +251,63 @@ def test_trading_engine_rebases_risk_settings_to_actual_balance():
     updated = engine._settings_with_balance(risk_settings(), 2500)
 
     assert updated.balance == 2500
+
+
+@pytest.mark.asyncio
+async def test_drawdown_limit_activates_only_close_and_critical_notification():
+    class Result:
+        def __init__(self, values=None, scalar=None):
+            self.values = values or []
+            self.scalar = scalar
+
+        def scalars(self):
+            return self
+
+        def all(self):
+            return self.values
+
+        def scalar_one(self):
+            return self.scalar
+
+    class Db:
+        def __init__(self):
+            self.results = [Result(values=[100, -20]), Result(scalar=-40)]
+            self.added = []
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+        def add(self, value):
+            self.added.append(value)
+
+    class Control:
+        def __init__(self):
+            self.reason = None
+
+        async def is_paused(self):
+            return False, None
+
+        async def panic(self, reason):
+            self.reason = reason
+            return True
+
+    class Telegram:
+        def __init__(self):
+            self.messages = []
+
+        async def broadcast(self, message):
+            self.messages.append(message)
+            return 1
+
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(max_drawdown_percent=5)
+    engine.control = Control()
+    engine.telegram = Telegram()
+    db = Db()
+
+    assessment = await engine._enforce_drawdown_limit(db, balance=1000)
+
+    assert assessment.emergency is True
+    assert engine.control.reason.startswith("risk_drawdown:5.45%")
+    assert "ONLY CLOSE" in engine.telegram.messages[0]
+    assert db.added[0].level == "CRITICAL"

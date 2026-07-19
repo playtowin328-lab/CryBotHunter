@@ -1,11 +1,14 @@
+import asyncio
 from datetime import datetime, timezone
 from hashlib import sha256
 from random import Random
+from typing import Any
 
 import pandas as pd
 
 from app.core.config import get_settings
 from app.schemas.dto import MarketCoin
+from app.services.context_manager import ContextManager
 from app.services.exchange import ExchangeClient
 from app.services.market_regime import MarketRegimeDetector
 
@@ -14,6 +17,7 @@ class MarketScanner:
     def __init__(self, exchange: ExchangeClient | None = None) -> None:
         self.regime_detector = MarketRegimeDetector()
         self.exchange = exchange or ExchangeClient()
+        self.context_manager = ContextManager()
 
     async def scan(self, symbols: list[str] | None = None) -> list[MarketCoin]:
         symbols = symbols or ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"]
@@ -30,7 +34,11 @@ class MarketScanner:
             if len(candles) < 200:
                 continue
             frame = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
-            indicators = self.calculate_indicators(frame).iloc[-1]
+            market_context, indicator_frame = await asyncio.gather(
+                self.context_manager.get_market_context(frame),
+                asyncio.to_thread(self.calculate_indicators, frame.copy(deep=True)),
+            )
+            indicators = indicator_frame.iloc[-1]
             ticker = tickers.get(symbol, {})
             bid = self._optional_float(ticker.get("bid"))
             ask = self._optional_float(ticker.get("ask"))
@@ -39,8 +47,10 @@ class MarketScanner:
                 "price": float(ticker.get("last") or indicators["close"]),
                 "volume_24h": float(ticker.get("quoteVolume") or frame.tail(24)["volume"].sum()),
                 "price_change_percent": float(ticker.get("percentage") or 0),
-                "atr": float(indicators["atr"] or 0),
-                "rsi": float(indicators["rsi"] or 50),
+                "atr": market_context.atr,
+                "rsi": market_context.rsi,
+                "sma": market_context.sma,
+                "market_context": market_context.as_dict(),
                 "ema20": float(indicators["ema20"]),
                 "ema50": float(indicators["ema50"]),
                 "ema200": float(indicators["ema200"]),
@@ -54,7 +64,15 @@ class MarketScanner:
             coins.append(self._coin_from_row(row))
         return coins
 
-    def _coin_from_row(self, row: dict[str, float | str]) -> MarketCoin:
+    def _coin_from_row(self, row: dict[str, Any]) -> MarketCoin:
+        if not row.get("market_context"):
+            market_context = self.context_manager.from_values(
+                close=float(row["price"]),
+                rsi=float(row["rsi"]),
+                atr=float(row["atr"]),
+                sma=float(row.get("sma") or row["ema50"]),
+            )
+            row = {**row, "sma": market_context.sma, "market_context": market_context.as_dict()}
         regime = self.regime_detector.detect(row)
         return MarketCoin(
             **row,
@@ -64,7 +82,7 @@ class MarketScanner:
             regime_reason=regime.reason,
         )
 
-    def rate_coin(self, row: dict[str, float | str]) -> int:
+    def rate_coin(self, row: dict[str, Any]) -> int:
         price = max(float(row["price"]), 1e-12)
         quote_volume = max(float(row["volume_24h"]), 0.0)
         open_interest = max(float(row.get("open_interest") or 0), 0.0)

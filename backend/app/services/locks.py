@@ -23,10 +23,13 @@ class RedisLockManager:
             acquired = bool(await self.redis.set(key, "1", nx=True, ex=ttl_seconds))
         except RedisError:
             redis_available = False
-            acquired = True
-            logger.exception("Redis lock unavailable, continuing without distributed lock: %s", name)
+            acquired = False
+            logger.exception("Redis lock unavailable, skipping protected operation: %s", name)
         try:
             yield acquired
         finally:
             if acquired and redis_available:
-                await self.redis.delete(key)
+                try:
+                    await self.redis.delete(key)
+                except RedisError:
+                    logger.exception("Redis lock release failed; TTL will expire the lock: %s", name)

@@ -1,3 +1,4 @@
+import sqlite3
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -8,6 +9,8 @@ from app.core.config import get_settings
 from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
 from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.agents import AgentOrchestrator
+from app.services.context_manager import ContextManager
+from app.services.control import TradingControlService
 from app.services.cooldown import LossCooldownGuard
 from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
@@ -18,7 +21,7 @@ from app.services.optimizer import StrategyOptimizerService
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.pretrade_quality import PreTradeQualityGate
-from app.services.risk_manager import RiskManager, RiskSettings
+from app.services.risk_manager import DrawdownAssessment, RiskManager, RiskSettings
 from app.services.rl_gate import RlDecisionGate
 from app.services.strategy import StrategyCore
 from app.services.telegram_bot import TelegramNotifier
@@ -41,11 +44,17 @@ class TradingEngine:
         self.agents = AgentOrchestrator()
         self.learning = LearningService()
         self.telegram = TelegramNotifier()
+        self.context = ContextManager()
+        self.control = TradingControlService()
         self.settings = get_settings()
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings, timeframe: str = "1h") -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
         settings = self._settings_with_balance(settings, balance)
+        drawdown = await self._enforce_drawdown_limit(db, settings.balance)
+        if drawdown.emergency:
+            await db.commit()
+            return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
         coins = await self.scanner.scan()
         guard = await self.guard.evaluate(db)
         if not guard.allowed:
@@ -193,38 +202,56 @@ class TradingEngine:
         return TradingRunOut(scanned=len(coins), opened=opened, skipped=len(decisions) - opened, decisions=decisions)
 
     async def manage_open_positions(self, db: AsyncSession) -> TradingTickOut:
-        positions = (
-            await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.asc()))
-        ).scalars().all()
+        positions = list(
+            (
+                await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.asc()))
+            ).scalars().all()
+        )
+        balance = self._safe_balance((await self.exchange.get_balance()).get("USDT"), fallback=1000.0)
         if not positions:
+            drawdown = await self._enforce_drawdown_limit(db, balance)
+            if drawdown.emergency:
+                await db.commit()
             return TradingTickOut(checked=0, closed=0, updated=[])
 
         market = {coin.symbol: coin for coin in await self.scanner.scan([position.symbol for position in positions])}
+        previous_prices: dict[int, float] = {}
+        for position in positions:
+            coin = market.get(position.symbol)
+            if not coin:
+                continue
+            previous_prices[position.id] = position.current_price
+            position.current_price = coin.price
+            position.highest_price = max(position.highest_price or position.entry_price, coin.price)
+            position.lowest_price = min(position.lowest_price or position.entry_price, coin.price)
+            position.pnl = await self._position_total_pnl(db, position, coin.price)
+
+        drawdown = await self._enforce_drawdown_limit(db, balance)
+        emergency_close = drawdown.emergency
         updates: list[PositionUpdateOut] = []
 
         for position in positions:
             coin = market.get(position.symbol)
             if not coin:
                 continue
-            previous_price = position.current_price
-            position.current_price = coin.price
-            position.highest_price = max(position.highest_price or position.entry_price, coin.price)
-            position.lowest_price = min(position.lowest_price or position.entry_price, coin.price)
-            if await self._apply_partial_take_profit(db, position, coin.price):
-                db.add(LogEntry(level="INFO", message=f"Partially closed {position.symbol} #{position.id}: remaining={position.volume:.6f}"))
-            if self._apply_breakeven(position):
-                db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
-            self._apply_trailing_stop(position)
-            position.pnl = await self._position_total_pnl(db, position, coin.price)
-            exit_reason = self._exit_reason(position)
-            if exit_reason:
-                await self._close_position(db, position, coin.price, exit_reason)
+            if emergency_close:
+                await self._close_position(db, position, coin.price, "EMERGENCY_DRAWDOWN")
+            else:
+                if await self._apply_partial_take_profit(db, position, coin.price):
+                    db.add(LogEntry(level="INFO", message=f"Partially closed {position.symbol} #{position.id}: remaining={position.volume:.6f}"))
+                if self._apply_breakeven(position):
+                    db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
+                self._apply_trailing_stop(position)
+                position.pnl = await self._position_total_pnl(db, position, coin.price)
+                exit_reason = self._exit_reason(position)
+                if exit_reason:
+                    await self._close_position(db, position, coin.price, exit_reason)
             updates.append(
                 PositionUpdateOut(
                     id=position.id,
                     symbol=position.symbol,
                     side=position.side,
-                    previous_price=previous_price,
+                    previous_price=previous_prices.get(position.id, position.current_price),
                     current_price=position.current_price,
                     pnl=position.pnl,
                     status=position.status,
@@ -249,7 +276,13 @@ class TradingEngine:
     ) -> Position | None:
         side = "LONG" if signal == "BUY" else "SHORT"
         stop, take, initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
-        volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
+        volume = self.risk.calculate_position_size(
+            balance,
+            settings.risk_percent,
+            coin.price,
+            stop,
+            max_position_percent=settings.max_position_size_percent,
+        )
         if volume <= 0:
             return None
         entry_order = await self.execution.execute_market(
@@ -291,13 +324,15 @@ class TradingEngine:
         return position
 
     def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
-        percent_risk = entry_price * settings.stop_loss_percent / 100
-        atr_risk = atr * settings.atr_stop_multiplier if atr > 0 else 0
-        initial_risk = round(max(atr_risk, percent_risk), 8)
-        reward = initial_risk * settings.risk_reward_ratio
-        if side == "LONG":
-            return round(entry_price - initial_risk, 8), round(entry_price + reward, 8), initial_risk
-        return round(entry_price + initial_risk, 8), round(entry_price - reward, 8), initial_risk
+        plan = self.risk.calculate_dynamic_exits(
+            entry_price=entry_price,
+            atr=atr,
+            side=side,
+            atr_multiplier=settings.atr_stop_multiplier,
+            risk_reward_ratio=settings.risk_reward_ratio,
+            fallback_stop_percent=settings.stop_loss_percent,
+        )
+        return plan.stop_loss, plan.take_profit, plan.risk_per_unit
 
     def _exposure_gate(
         self,
@@ -308,8 +343,17 @@ class TradingEngine:
         exposure: dict,
     ) -> tuple[bool, str, float]:
         side = "LONG" if signal == "BUY" else "SHORT"
-        stop, _take, _initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
-        volume = self.risk.position_size(balance, settings.risk_percent, coin.price, stop)
+        try:
+            stop, _take, _initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
+        except ValueError as exc:
+            return False, f"invalid dynamic risk inputs: {exc}", 0.0
+        volume = self.risk.calculate_position_size(
+            balance,
+            settings.risk_percent,
+            coin.price,
+            stop,
+            max_position_percent=settings.max_position_size_percent,
+        )
         candidate_notional = self.risk.position_notional(coin.price, volume)
         accepted, reason = self.risk.can_add_exposure(
             balance=balance,
@@ -450,6 +494,18 @@ class TradingEngine:
             )
         position.pnl = self._total_closed_profit(previous_realized, final_trade_profit)
         await self.learning.record_closed_position(db, position, position.pnl, reason)
+        try:
+            await self.context.remember_trade(
+                symbol=position.symbol,
+                side=position.side,
+                entry_price=position.entry_price,
+                exit_price=exit_order.average_price,
+                pnl=position.pnl,
+                exit_reason=reason,
+                timestamp=position.closed_at,
+            )
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            db.add(LogEntry(level="ERROR", message=f"SQLite trade memory failed for {position.symbol} #{position.id}: {exc}"))
         db.add(LogEntry(level="INFO", message=f"Closed {position.symbol} #{position.id}: {reason}, pnl={position.pnl:.2f}"))
         db.add(LogEntry(level="INFO", message=f"Learning updated from {position.symbol} #{position.id}: reason={reason}, pnl={position.pnl:.2f}"))
         await self.telegram.broadcast(
@@ -552,8 +608,78 @@ class TradingEngine:
     async def _daily_pnl(self, db: AsyncSession) -> float:
         return (await self.pnl_metrics.summary(db)).pnl_day
 
+    async def _enforce_drawdown_limit(self, db: AsyncSession, balance: float) -> DrawdownAssessment:
+        threshold = max(float(self.settings.max_drawdown_percent), 0.01)
+        closed_pnls = list(
+            (
+                await db.execute(
+                    select(Position.pnl)
+                    .where(Position.status == "CLOSED")
+                    .order_by(Position.closed_at.asc(), Position.id.asc())
+                )
+            ).scalars().all()
+        )
+        open_pnl = float(
+            (
+                await db.execute(
+                    select(func.coalesce(func.sum(Position.pnl), 0.0)).where(Position.status == "OPEN")
+                )
+            ).scalar_one()
+        )
+        try:
+            assessment = self.risk.calculate_drawdown(
+                starting_equity=balance,
+                closed_pnls=closed_pnls,
+                open_pnl=open_pnl,
+                threshold_percent=threshold,
+            )
+        except (TypeError, ValueError):
+            assessment = DrawdownAssessment(
+                starting_equity=max(balance, 0.0),
+                peak_equity=max(balance, 0.0),
+                current_equity=0.0,
+                drawdown_percent=100.0,
+                threshold_percent=threshold,
+                emergency=True,
+            )
+
+        if not assessment.emergency:
+            return assessment
+
+        reason = f"risk_drawdown:{assessment.drawdown_percent:.2f}%>={assessment.threshold_percent:.2f}%"
+        paused, previous_reason = await self.control.is_paused()
+        first_activation = not paused or not (previous_reason or "").startswith("risk_drawdown:")
+        await self.control.panic(reason)
+        if first_activation:
+            message = (
+                "CRITICAL: portfolio drawdown limit reached\n"
+                f"Drawdown: {assessment.drawdown_percent:.2f}%\n"
+                f"Limit: {assessment.threshold_percent:.2f}%\n"
+                f"Equity: {assessment.current_equity:.2f}\n"
+                "Mode: ONLY CLOSE. New entries are blocked."
+            )
+            db.add(LogEntry(level="CRITICAL", message=message.replace("\n", " | ")))
+            await self.telegram.broadcast(message)
+        return assessment
+
     def _settings_with_balance(self, settings: RiskSettings, balance: float) -> RiskSettings:
-        return replace(settings, balance=max(float(balance), 0.0))
+        return replace(
+            settings,
+            balance=self._safe_balance(balance, fallback=settings.balance),
+            max_position_size_percent=min(
+                max(float(self.settings.max_position_size_percent), 0.01),
+                100.0,
+            ),
+        )
+
+    def _safe_balance(self, balance: float | None, fallback: float) -> float:
+        try:
+            value = float(balance) if balance is not None else float(fallback)
+        except (TypeError, ValueError):
+            value = float(fallback)
+        if value <= 0 or value != value or value in {float("inf"), float("-inf")}:
+            value = float(fallback)
+        return max(value, 0.01)
 
     async def _portfolio_exposure(self, db: AsyncSession) -> dict:
         result = await db.execute(select(Position).where(Position.status == "OPEN"))

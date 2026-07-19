@@ -9,6 +9,9 @@ node_modules/
 .pnpm-store/
 dist/
 postgres_data/
+backend/data/*.sqlite3
+backend/data/*.sqlite3-shm
+backend/data/*.sqlite3-wal
 .idea/
 outputs/
 work/

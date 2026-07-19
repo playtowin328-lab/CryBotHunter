@@ -1,3 +1,5 @@
+import pytest
+
 from app.schemas.dto import StrategySignal
 from app.services.risk_manager import RiskManager, RiskSettings
 
@@ -59,6 +61,18 @@ def test_risk_blocks_weak_risk_reward():
     )
     assert accepted is False
     assert reason == "risk/reward ratio below safety limit"
+
+
+def test_risk_blocks_nan_daily_pnl():
+    accepted, reason = RiskManager().can_open(
+        StrategySignal(symbol="BTC/USDT", signal="BUY", score=90),
+        settings(),
+        open_positions_count=0,
+        daily_pnl=float("nan"),
+    )
+
+    assert accepted is False
+    assert reason == "invalid risk inputs"
 
 
 def test_position_size_uses_loss_budget():
@@ -125,3 +139,65 @@ def test_directional_exposure_blocks_when_side_limit_is_reached():
     assert accepted is False
     assert multiplier == 0.0
     assert reason == "short direction position limit reached"
+
+
+def test_dynamic_exits_use_atr_and_risk_reward_for_both_sides():
+    manager = RiskManager()
+
+    long_plan = manager.calculate_dynamic_exits(100, atr=2, side="LONG", atr_multiplier=2, risk_reward_ratio=2)
+    short_plan = manager.calculate_dynamic_exits(100, atr=2, side="SHORT", atr_multiplier=2, risk_reward_ratio=2)
+
+    assert (long_plan.stop_loss, long_plan.take_profit, long_plan.risk_per_unit) == (96, 108, 4)
+    assert (short_plan.stop_loss, short_plan.take_profit, short_plan.risk_per_unit) == (104, 92, 4)
+
+
+def test_dynamic_exits_fall_back_to_percent_when_atr_is_nan():
+    plan = RiskManager().calculate_dynamic_exits(
+        100,
+        atr=float("nan"),
+        side="BUY",
+        atr_multiplier=2,
+        risk_reward_ratio=2,
+        fallback_stop_percent=1.5,
+    )
+
+    assert plan.stop_loss == 98.5
+    assert plan.take_profit == 103
+
+
+def test_calculate_position_size_caps_notional_to_deposit_percent():
+    size = RiskManager().calculate_position_size(
+        balance=1000,
+        risk_percent=2,
+        entry_price=100,
+        stop_price=99,
+        max_position_percent=25,
+    )
+
+    assert size == 2.5
+
+
+def test_position_size_returns_zero_for_none_or_nan_inputs():
+    manager = RiskManager()
+
+    assert manager.calculate_position_size(1000, 1, 100, float("nan")) == 0
+    assert manager.calculate_position_size(1000, 1, 100, None) == 0
+
+
+def test_drawdown_uses_equity_peak_and_triggers_emergency_at_five_percent():
+    assessment = RiskManager().calculate_drawdown(
+        starting_equity=1000,
+        closed_pnls=[100, -20],
+        open_pnl=-40,
+        threshold_percent=5,
+    )
+
+    assert assessment.peak_equity == 1100
+    assert assessment.current_equity == 1040
+    assert assessment.drawdown_percent == 5.4545
+    assert assessment.emergency is True
+
+
+def test_drawdown_rejects_nan_instead_of_understating_portfolio_risk():
+    with pytest.raises(ValueError, match="closed_pnls"):
+        RiskManager().calculate_drawdown(1000, [float("nan")])

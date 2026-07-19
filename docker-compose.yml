@@ -38,12 +38,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    volumes:
+      - trade_memory_data:/app/data
     ports:
       - "8000:8000"
 
   telegram:
     build: ./backend
-    profiles: ["telegram"]
+    profiles: ["workers", "telegram"]
     environment:
       APP_PROCESS: telegram
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -63,7 +65,7 @@ services:
 
   trader:
     build: ./backend
-    profiles: ["trader"]
+    profiles: ["workers", "trader"]
     environment:
       APP_PROCESS: trader
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -75,6 +77,70 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_ALLOWED_CHAT_IDS: ${TELEGRAM_ALLOWED_CHAT_IDS:-}
       TRADER_LOOP_SECONDS: ${TRADER_LOOP_SECONDS:-60}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - trade_memory_data:/app/data
+
+  candles:
+    build: ./backend
+    profiles: ["workers", "candles"]
+    environment:
+      APP_PROCESS: candles
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
+      PAPER_TRADING: ${PAPER_TRADING:-true}
+      MARKET_DATA_MODE: ${MARKET_DATA_MODE:-ccxt}
+      CANDLE_INGEST_SYMBOLS: ${CANDLE_INGEST_SYMBOLS:-BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT}
+      CANDLE_INGEST_TIMEFRAMES: ${CANDLE_INGEST_TIMEFRAMES:-1h}
+      CANDLE_INGEST_LOOP_SECONDS: ${CANDLE_INGEST_LOOP_SECONDS:-300}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  optimizer:
+    build: ./backend
+    profiles: ["workers", "optimizer"]
+    environment:
+      APP_PROCESS: optimizer
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
+      STRATEGY_OPTIMIZER_WORKER_ENABLED: ${STRATEGY_OPTIMIZER_WORKER_ENABLED:-true}
+      STRATEGY_OPTIMIZER_LOOP_SECONDS: ${STRATEGY_OPTIMIZER_LOOP_SECONDS:-21600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  rl:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.rl
+    profiles: ["workers", "rl"]
+    environment:
+      APP_PROCESS: rl
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://trader:trader@postgres:5432/trader}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-long-random-secret}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-replace-with-valid-fernet-key}
+      PAPER_TRADING: "true"
+      LIVE_TRADING_ENABLED: "false"
+      MARKET_DATA_MODE: ${MARKET_DATA_MODE:-ccxt}
+      RL_TRAINER_ENABLED: ${RL_TRAINER_ENABLED:-true}
+      RL_PREDICTION_LOOP_SECONDS: ${RL_PREDICTION_LOOP_SECONDS:-300}
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,3 +168,4 @@ services:
 
 volumes:
   postgres_data:
+  trade_memory_data:

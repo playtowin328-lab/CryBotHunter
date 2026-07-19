@@ -83,6 +83,8 @@ class MarketCoin(BaseModel):
     regime: str = "UNKNOWN"
     regime_score: int = 0
     regime_reason: str = ""
+    sma: float = 0
+    market_context: dict = Field(default_factory=dict)
 
 
 class StrategySignal(BaseModel):
