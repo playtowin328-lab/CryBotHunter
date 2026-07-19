@@ -33,6 +33,12 @@ def test_regime_detector_finds_trending_up():
     assert regime.score >= 70
 
 
+def test_regime_detector_does_not_treat_missing_spot_open_interest_as_illiquid():
+    regime = MarketRegimeDetector().detect(row(open_interest=0))
+
+    assert regime.name == "TRENDING_UP"
+
+
 def test_regime_detector_blocks_high_volatility():
     regime = MarketRegimeDetector().detect(row(atr=12))
     assert regime.name == "HIGH_VOLATILITY"

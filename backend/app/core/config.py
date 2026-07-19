@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     candle_ingest_limit: int = 500
     candle_ingest_loop_seconds: int = 300
     candle_dataset_target: int = 5_000
-    rl_trainer_enabled: bool = False
+    rl_trainer_enabled: bool = True
     rl_gate_enabled: bool = True
     rl_training_timesteps: int = 20_000
     rl_training_limit: int = 5_000

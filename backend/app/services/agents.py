@@ -164,11 +164,14 @@ class LiquidityAgent:
     name = "LiquidityAgent"
 
     def decide(self, coin: MarketCoin) -> AgentDecisionOut:
-        liquid = coin.volume_24h >= 100_000_000 and coin.open_interest >= 100_000_000
+        open_interest_available = coin.open_interest > 0
+        open_interest_liquid = not open_interest_available or coin.open_interest >= 100_000_000
+        liquid = coin.volume_24h >= 100_000_000 and open_interest_liquid
         action = "ALLOW" if liquid else "BLOCK"
         confidence = 0.9 if liquid else 0.8
+        open_interest_text = f"{coin.open_interest:.0f}" if open_interest_available else "not available for spot"
         rationale = (
-            f"Volume 24h={coin.volume_24h:.0f}, open interest={coin.open_interest:.0f}; "
+            f"Volume 24h={coin.volume_24h:.0f}, open interest={open_interest_text}; "
             f"liquidity {'accepted' if liquid else 'too thin'}."
         )
         return AgentDecisionOut(

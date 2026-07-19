@@ -65,13 +65,22 @@ class MarketScanner:
         )
 
     def rate_coin(self, row: dict[str, float | str]) -> int:
-        volume_score = min(float(row["volume_24h"]) / 2_000_000_000 * 20, 20)
-        trend_score = 25 if row["ema50"] > row["ema200"] else 12
-        volatility_score = max(0, 15 - abs(float(row["atr"]) / float(row["price"]) * 100 - 3) * 3)
-        volume_growth_score = min(max(float(row["price_change_percent"]), 0) * 4, 20)
-        liquidity_score = min(float(row["open_interest"]) / 1_000_000_000 * 20, 20)
-        spread_penalty = min(float(row.get("spread_bps") or 0) / 5, 10)
-        score = round(volume_score + trend_score + volatility_score + volume_growth_score + liquidity_score - spread_penalty)
+        price = max(float(row["price"]), 1e-12)
+        quote_volume = max(float(row["volume_24h"]), 0.0)
+        open_interest = max(float(row.get("open_interest") or 0), 0.0)
+        spread_bps = max(float(row.get("spread_bps") or 0), 0.0)
+        atr_percent = max(float(row["atr"]), 0.0) / price * 100
+        trend_separation = abs(float(row["ema50"]) - float(row["ema200"])) / price * 100
+
+        # Spot tickers do not expose futures open interest. Missing optional
+        # derivatives data must not make a high-quality spot setup impossible.
+        volume_score = min(quote_volume / 2_000_000_000 * 25, 25)
+        trend_score = min(10 + trend_separation * 5, 20)
+        volatility_score = max(0, 20 - abs(atr_percent - 3) * 4)
+        momentum_score = min(abs(float(row["price_change_percent"])) * 4, 20)
+        depth_score = min(open_interest / 1_000_000_000 * 5, 5) if open_interest > 0 else 5
+        spread_score = 5 if spread_bps <= 0 else max(0, 5 - spread_bps / 5)
+        score = round(volume_score + trend_score + volatility_score + momentum_score + depth_score + spread_score)
         return int(max(0, min(100, score)))
 
     def calculate_indicators(self, candles: pd.DataFrame) -> pd.DataFrame:

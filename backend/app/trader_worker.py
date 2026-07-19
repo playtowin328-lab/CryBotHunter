@@ -49,7 +49,7 @@ async def main() -> None:
                             exchange = ExchangeClient.from_user_settings(user_settings)
                             engine = TradingEngine(exchange)
                             reconciliation = OrderReconciliationService(exchange)
-                            await engine.manage_open_positions(db)
+                            tick = await engine.manage_open_positions(db)
                             await reconciliation.reconcile(db)
                             paused, reason = await control.is_paused()
                             if paused:
@@ -71,7 +71,11 @@ async def main() -> None:
                                     partial_take_profit_r=user_settings.partial_take_profit_r,
                                     partial_close_percent=user_settings.partial_close_percent,
                                 )
-                                await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+                                run = await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+                                summary = _cycle_summary(run.scanned, run.opened, run.skipped, run.decisions, tick.closed)
+                                logger.info(summary)
+                                db.add(LogEntry(level="INFO", message=summary))
+                                await db.commit()
         except ccxt.BaseError as exc:
             message = exchange_error_message(
                 exc,
@@ -105,6 +109,18 @@ async def _load_safety_credentials() -> SafetyCredentials | None:
         api_secret=decrypt_secret(user_settings.secret_key_encrypted),
         passphrase=decrypt_secret(user_settings.passphrase_encrypted),
     )
+
+
+def _cycle_summary(scanned: int, opened: int, skipped: int, decisions: list, closed: int) -> str:
+    samples = "; ".join(
+        f"{decision.symbol}={decision.signal}/{decision.action}({decision.score}): {decision.reason}"
+        for decision in decisions[:3]
+    )
+    message = (
+        f"Auto-trade cycle scanned={scanned} opened={opened} skipped={skipped} "
+        f"closed={closed} learning_updates={closed}"
+    )
+    return f"{message}; {samples}"[:1000] if samples else message
 
 
 async def _record_worker_log(message: str) -> None:

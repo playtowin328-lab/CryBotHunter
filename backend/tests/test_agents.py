@@ -122,3 +122,10 @@ def test_trade_committee_veto_blocks_thin_liquidity():
 
     assert decision.action == "WAIT"
     assert consensus == 0
+
+
+def test_liquidity_agent_accepts_liquid_spot_market_without_open_interest():
+    decision = LiquidityAgent().decide(coin(open_interest=0))
+
+    assert decision.action == "ALLOW"
+    assert "not available for spot" in decision.rationale

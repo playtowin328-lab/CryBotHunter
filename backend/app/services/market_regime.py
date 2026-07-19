@@ -23,8 +23,9 @@ class MarketRegimeDetector:
         funding = self._value(row, "funding_rate")
 
         atr_percent = atr / max(price, 1) * 100
-        if volume < 100_000_000 or open_interest < 100_000_000:
-            return MarketRegime("LOW_LIQUIDITY", 20, "Volume or open interest is too thin.")
+        open_interest_too_thin = 0 < open_interest < 100_000_000
+        if volume < 100_000_000 or open_interest_too_thin:
+            return MarketRegime("LOW_LIQUIDITY", 20, "Available volume or open interest is too thin.")
         if atr_percent > 8 or abs(funding) > 0.08:
             return MarketRegime("HIGH_VOLATILITY", 25, "ATR or funding risk is too high.")
         if ema20 > ema50 > ema200 and price > ema50 and 50 <= rsi <= 76:
