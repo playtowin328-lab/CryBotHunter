@@ -286,7 +286,11 @@ class SafetyManager:
             "timeout": 20_000,
             "options": {"defaultType": config.market_type},
         }
-        if config.api_key and config.api_secret:
+        # Public paper/RL probes must stay credential-free even when the user has
+        # exchange keys saved for a future live session. Some exchanges validate
+        # supplied keys on otherwise public endpoints, which can make a safe paper
+        # worker fail before it starts.
+        if config.validate_private_api and config.api_key and config.api_secret:
             params["apiKey"] = config.api_key.get_secret_value()
             params["secret"] = config.api_secret.get_secret_value()
             if config.passphrase:

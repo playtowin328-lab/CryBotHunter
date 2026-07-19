@@ -76,6 +76,31 @@ async def test_paper_preflight_checks_public_real_market_without_credentials(mon
 
 
 @pytest.mark.asyncio
+async def test_paper_preflight_does_not_attach_saved_credentials_to_public_client(monkeypatch):
+    clear_safety_environment(monkeypatch)
+    captured_params: dict = {}
+
+    def build_exchange(params: dict) -> FakeExchange:
+        captured_params.update(params)
+        return FakeExchange()
+
+    monkeypatch.setattr(ccxt, "binance", build_exchange)
+    credentials = SafetyCredentials(
+        api_key="saved-key",
+        api_secret="saved-secret",
+        passphrase="saved-passphrase",
+    )
+
+    report = await SafetyManager().run(credentials)
+
+    assert report.mode == "PAPER"
+    assert report.private_api_checked is False
+    assert "apiKey" not in captured_params
+    assert "secret" not in captured_params
+    assert "password" not in captured_params
+
+
+@pytest.mark.asyncio
 async def test_live_preflight_exits_when_credentials_are_missing(monkeypatch):
     clear_safety_environment(monkeypatch)
     monkeypatch.setenv("PAPER_TRADING", "false")
