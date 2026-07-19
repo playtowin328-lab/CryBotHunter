@@ -140,11 +140,9 @@ CANDLE_DATASET_TARGET=5000
 
 For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
-For a live `trader-worker`, add the same exchange credentials that were saved through the web settings as Railway worker secrets and enable the private pre-flight:
+For a live `trader-worker`, save the exchange credentials through the web settings. The worker decrypts those credentials for both its startup pre-flight and its trading loop, so Railway does not need a duplicate copy. The private pre-flight is enabled automatically in live mode. `API_KEY` and `API_SECRET` remain supported as deployment-level fallbacks when no credentials have been saved in the database:
 
 ```env
-API_KEY=your-exchange-api-key
-API_SECRET=your-exchange-secret
 SAFETY_REQUIRE_API_CREDENTIALS=true
 SAFETY_VALIDATE_PRIVATE_API=true
 ```

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,9 +29,18 @@ class Settings(BaseSettings):
     market_data_mode: str = "ccxt"
     paper_fee_rate: float = 0.0004
     paper_slippage_bps: float = 2.0
-    exchange_api_key: str | None = None
-    exchange_secret_key: str | None = None
-    exchange_passphrase: str | None = None
+    exchange_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXCHANGE_API_KEY", "API_KEY"),
+    )
+    exchange_secret_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXCHANGE_SECRET_KEY", "EXCHANGE_API_SECRET", "API_SECRET"),
+    )
+    exchange_passphrase: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EXCHANGE_PASSPHRASE", "API_PASSPHRASE"),
+    )
     log_retention_days: int = 90
     telegram_bot_token: str | None = None
     telegram_allowed_chat_ids_raw: str = Field(default="", validation_alias="TELEGRAM_ALLOWED_CHAT_IDS")

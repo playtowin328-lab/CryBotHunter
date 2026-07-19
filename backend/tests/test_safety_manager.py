@@ -4,7 +4,8 @@ from pathlib import Path
 import ccxt
 import pytest
 
-from app.safety_manager import SafetyManager, ShutdownController
+from app.core.config import Settings
+from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController
 
 
 SAFETY_ENVIRONMENT = (
@@ -19,6 +20,7 @@ SAFETY_ENVIRONMENT = (
     "API_SECRET",
     "EXCHANGE_API_KEY",
     "EXCHANGE_SECRET_KEY",
+    "EXCHANGE_API_SECRET",
     "SAFETY_CHECK_ENABLED",
     "SAFETY_REQUIRE_API_CREDENTIALS",
     "SAFETY_VALIDATE_PRIVATE_API",
@@ -99,6 +101,53 @@ async def test_live_preflight_validates_private_balance(monkeypatch):
     assert report.mode == "LIVE"
     assert report.private_api_checked is True
     assert fake.balance_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_preflight_accepts_credentials_saved_in_user_settings(monkeypatch):
+    clear_safety_environment(monkeypatch)
+    monkeypatch.setenv("PAPER_TRADING", "false")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
+    fake = FakeExchange()
+    credentials = SafetyCredentials(
+        exchange="bybit",
+        api_key="saved-key",
+        api_secret="saved-secret",
+        passphrase="saved-passphrase",
+    )
+
+    manager = SafetyManager(exchange_factory=lambda config: fake)
+    report = await manager.run(credentials)
+    config = manager.load_environment(credentials)
+
+    assert report.exchange == "bybit"
+    assert report.private_api_checked is True
+    assert config.api_key is not None and config.api_key.get_secret_value() == "saved-key"
+    assert config.api_secret is not None and config.api_secret.get_secret_value() == "saved-secret"
+    assert config.passphrase is not None and config.passphrase.get_secret_value() == "saved-passphrase"
+
+
+def test_live_preflight_accepts_exchange_api_secret_alias(monkeypatch):
+    clear_safety_environment(monkeypatch)
+    monkeypatch.setenv("PAPER_TRADING", "false")
+    monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
+    monkeypatch.setenv("EXCHANGE_API_KEY", "alias-key")
+    monkeypatch.setenv("EXCHANGE_API_SECRET", "alias-secret")
+
+    config = SafetyManager().load_environment()
+
+    assert config.api_key is not None and config.api_key.get_secret_value() == "alias-key"
+    assert config.api_secret is not None and config.api_secret.get_secret_value() == "alias-secret"
+
+
+def test_runtime_settings_accept_preflight_credential_names(monkeypatch):
+    monkeypatch.setenv("API_KEY", "fallback-key")
+    monkeypatch.setenv("API_SECRET", "fallback-secret")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.exchange_api_key == "fallback-key"
+    assert settings.exchange_secret_key == "fallback-secret"
 
 
 @pytest.mark.asyncio

@@ -5,9 +5,10 @@ import ccxt
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.security import decrypt_secret
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry, UserSettings
-from app.safety_manager import SafetyManager, ShutdownController, configure_stdout_logging
+from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.locks import RedisLockManager
@@ -22,7 +23,8 @@ async def main() -> None:
     configure_stdout_logging()
     shutdown = ShutdownController()
     shutdown.install()
-    await SafetyManager().run_or_exit()
+    safety_credentials = await _load_safety_credentials()
+    await SafetyManager().run_or_exit(safety_credentials)
     if shutdown.requested:
         return
 
@@ -88,6 +90,21 @@ async def main() -> None:
         if await shutdown.wait(delay):
             break
     logger.info("Trader worker shutdown complete")
+
+
+async def _load_safety_credentials() -> SafetyCredentials | None:
+    async with AsyncSessionLocal() as db:
+        user_settings = (
+            await db.execute(select(UserSettings).order_by(UserSettings.id.asc()).limit(1))
+        ).scalar_one_or_none()
+    if user_settings is None:
+        return None
+    return SafetyCredentials(
+        exchange=user_settings.exchange,
+        api_key=decrypt_secret(user_settings.api_key_encrypted),
+        api_secret=decrypt_secret(user_settings.secret_key_encrypted),
+        passphrase=decrypt_secret(user_settings.passphrase_encrypted),
+    )
 
 
 async def _record_worker_log(message: str) -> None:

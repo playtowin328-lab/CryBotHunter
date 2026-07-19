@@ -7,12 +7,21 @@ import signal
 import sys
 import threading
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import ccxt
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SafetyCredentials:
+    exchange: str | None = None
+    api_key: str | None = field(default=None, repr=False)
+    api_secret: str | None = field(default=None, repr=False)
+    passphrase: str | None = field(default=None, repr=False)
 
 
 class SafetyConfiguration(BaseModel):
@@ -142,8 +151,8 @@ class SafetyManager:
         self.exchange_factory = exchange_factory or self._default_exchange_factory
         self.sleep = sleep
 
-    async def run(self) -> SafetyReport:
-        config = self.load_environment()
+    async def run(self, credentials: SafetyCredentials | None = None) -> SafetyReport:
+        config = self.load_environment(credentials)
         mode = "PAPER" if config.paper_trading else "LIVE"
         logger.info(
             "Pre-flight starting process=%s exchange=%s market=%s mode=%s",
@@ -170,23 +179,29 @@ class SafetyManager:
         )
         return report
 
-    async def run_or_exit(self) -> SafetyReport:
+    async def run_or_exit(self, credentials: SafetyCredentials | None = None) -> SafetyReport:
         try:
-            return await self.run()
+            return await self.run(credentials)
         except (SafetyCheckError, ValidationError, ValueError) as exc:
             logger.critical("Pre-flight failed: %s", self._safe_error(exc))
             sys.exit(1)
 
-    def load_environment(self) -> SafetyConfiguration:
+    def load_environment(self, credentials: SafetyCredentials | None = None) -> SafetyConfiguration:
         live = _env_bool("LIVE_TRADING", _env_bool("LIVE_TRADING_ENABLED", False))
         require_credentials = _env_bool("SAFETY_REQUIRE_API_CREDENTIALS", live)
-        api_key = _first_env("API_KEY", "EXCHANGE_API_KEY")
-        api_secret = _first_env("API_SECRET", "EXCHANGE_SECRET_KEY")
-        passphrase = _first_env("API_PASSPHRASE", "EXCHANGE_PASSPHRASE")
+        stored = credentials or SafetyCredentials()
+        api_key = _normalized_optional(stored.api_key) or _first_env("API_KEY", "EXCHANGE_API_KEY")
+        api_secret = _normalized_optional(stored.api_secret) or _first_env(
+            "API_SECRET", "EXCHANGE_SECRET_KEY", "EXCHANGE_API_SECRET"
+        )
+        passphrase = _normalized_optional(stored.passphrase) or _first_env(
+            "API_PASSPHRASE", "EXCHANGE_PASSPHRASE"
+        )
+        exchange = _normalized_optional(stored.exchange) or _env_text("DEFAULT_EXCHANGE", "binance")
         return SafetyConfiguration(
             enabled=_env_bool("SAFETY_CHECK_ENABLED", True),
             process=_env_text("APP_PROCESS", "unknown"),
-            exchange=_env_text("DEFAULT_EXCHANGE", "binance").lower(),
+            exchange=exchange.lower(),
             market_type=_env_text("EXCHANGE_DEFAULT_TYPE", "spot").lower(),
             check_symbol=_env_text("SAFETY_CHECK_SYMBOL", "BTC/USDT").upper(),
             paper_trading=_env_bool("PAPER_TRADING", True),
@@ -308,6 +323,12 @@ def _first_env(*names: str) -> str | None:
             if normalized:
                 return normalized
     return None
+
+
+def _normalized_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.strip().strip('"').strip("'") or None
 
 
 def _env_bool(name: str, default: bool) -> bool:
