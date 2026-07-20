@@ -96,8 +96,10 @@ export type TradingTick = {
     id: number;
     symbol: string;
     side: string;
+    entry_price: number;
     previous_price: number;
     current_price: number;
+    volume: number;
     pnl: number;
     status: string;
     exit_reason?: string | null;

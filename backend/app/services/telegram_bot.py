@@ -6,12 +6,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import Position
+from app.models.entities import LearningRule, LogEntry, Position, RlModel
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.reconciliation import OrderReconciliationService
+from app.services.telegram_reports import human_reason, split_telegram_message
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,20 @@ class TelegramNotifier:
     async def send_message(self, chat_id: int, text: str) -> bool:
         if not self.enabled:
             return False
+        chunks = split_telegram_message(text)
+        if not chunks:
+            return False
+        results = [await self._send_message_chunk(chat_id, chunk) for chunk in chunks]
+        return all(results)
+
+    async def _send_message_chunk(self, chat_id: int, text: str) -> bool:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.post(f"{self.base_url}/sendMessage", json={"chat_id": chat_id, "text": text})
                 response.raise_for_status()
                 return True
-        except httpx.HTTPError:
-            logger.exception("Telegram sendMessage failed for chat_id=%s", chat_id)
+        except httpx.HTTPError as exc:
+            logger.warning("Telegram sendMessage failed for chat_id=%s error=%s", chat_id, type(exc).__name__)
             return False
 
     async def broadcast(self, text: str) -> int:
@@ -48,25 +56,28 @@ class TelegramCommandService:
     async def handle(self, command: str, db: AsyncSession) -> str:
         command = command.strip()
         if not command:
-            return "Send a command: /balance, /stats, /positions."
+            return "Отправь команду /help, чтобы увидеть возможности бота."
         command = command.split()[0].lower()
         if command in {"/start", "/help"}:
             return (
-                "CryBotHunter online.\n\n"
-                "Commands:\n"
-                "/status - system mode and open positions\n"
-                "/panic - pause new entries\n"
-                "/resume - resume new entries\n"
-                "/balance - paper/live balance\n"
-                "/stats - trading statistics\n"
-                "/guard - performance guard status\n"
-                "/positions - active positions\n"
-                "/reconcile - reconcile local orders\n"
-                "/chatid - show this Telegram chat id\n"
-                "/stop - deployment hint"
+                "CryBotHunter работает.\n\n"
+                "Команды:\n"
+                "/status — режим и состояние системы\n"
+                "/report — полный текущий отчёт\n"
+                "/positions — открытые позиции\n"
+                "/trades — последние закрытые сделки\n"
+                "/why — последние решения и причины пропуска\n"
+                "/learning — состояние обучения\n"
+                "/balance — виртуальный/реальный баланс\n"
+                "/stats — торговая статистика\n"
+                "/guard — защитные ограничения\n"
+                "/panic — остановить новые входы\n"
+                "/resume — разрешить новые входы\n"
+                "/reconcile — сверить локальные ордера\n"
+                "/chatid — показать ID этого чата"
             )
         if command == "/stop":
-            return "Notifications stay controlled by Railway variables. Stop the telegram service to disable polling."
+            return "Остановить сервис можно в Railway. Для временной остановки новых входов используй /panic."
         if command == "/panic":
             if not await TradingControlService().panic("telegram"):
                 return "Redis unavailable. Panic state could not be persisted; trading remains fail-closed."
@@ -81,47 +92,134 @@ class TelegramCommandService:
             open_positions = (
                 await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
             ).scalar_one()
-            mode = "paper trading" if settings.paper_trading else "live trading"
-            return f"Status: online\nMode: {mode}\nPaused: {paused} {reason or ''}\nOpen positions: {int(open_positions)}"
+            mode = "PAPER — виртуальные деньги" if settings.paper_trading else "LIVE — реальные ордера"
+            return (
+                "Статус: онлайн\n"
+                f"Режим: {mode}\n"
+                f"Новые входы на паузе: {'да' if paused else 'нет'}\n"
+                f"Причина паузы: {reason or 'нет'}\n"
+                f"Открытых позиций: {int(open_positions)}\n"
+                f"Исследовательские входы: {'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}"
+            )
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
-            return "Balance:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
+            return "Баланс:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
         if command == "/stats":
             pnl = await PnlMetricsService().summary(db)
             return (
-                f"Stats:\n"
-                f"Closed trades: {pnl.trades_count}\n"
-                f"Day PnL: {pnl.pnl_day:.2f}\n"
-                f"Week PnL: {pnl.pnl_week:.2f}\n"
-                f"Total PnL: {pnl.total_pnl:.2f}\n"
-                f"Open PnL: {pnl.open_pnl:.2f}\n"
-                f"Win Rate: {pnl.win_rate:.2f}%"
+                f"Статистика:\n"
+                f"Закрытых сделок: {pnl.trades_count}\n"
+                f"PnL за день: {pnl.pnl_day:+.2f} USDT\n"
+                f"PnL за неделю: {pnl.pnl_week:+.2f} USDT\n"
+                f"Общий PnL: {pnl.total_pnl:+.2f} USDT\n"
+                f"Открытый PnL: {pnl.open_pnl:+.2f} USDT\n"
+                f"Доля прибыльных: {pnl.win_rate:.2f}%"
             )
         if command == "/guard":
             report = await PerformanceGuardService().evaluate(db)
             return (
-                f"Performance Guard:\n"
-                f"Allowed: {report.allowed}\n"
-                f"Reason: {report.reason}\n"
-                f"Trades: {report.trades_checked}\n"
-                f"Win Rate: {report.win_rate:.2f}%\n"
-                f"Loss Streak: {report.loss_streak}\n"
-                f"Total Profit: {report.total_profit:.2f}"
+                f"Защитный фильтр:\n"
+                f"Новые входы разрешены: {'да' if report.allowed else 'нет'}\n"
+                f"Причина: {human_reason(report.reason)}\n"
+                f"Проверено сделок: {report.trades_checked}\n"
+                f"Доля прибыльных: {report.win_rate:.2f}%\n"
+                f"Серия убытков: {report.loss_streak}\n"
+                f"Суммарный результат: {report.total_profit:+.2f} USDT"
             )
         if command == "/positions":
             positions = (
                 await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))
             ).scalars().all()
             if not positions:
-                return "No open positions."
-            return "Open positions:\n" + "\n".join(
-                f"#{item.id} {item.symbol} {item.side} entry={item.entry_price:.4f} stop={item.stop:.4f} take={item.take:.4f} pnl={item.pnl:.2f}"
+                return "Открытых позиций сейчас нет."
+            return "Открытые позиции:\n" + "\n".join(
+                f"#{item.id} {item.symbol} {item.side}\n"
+                f"  вход {item.entry_price:.4f}, сейчас {item.current_price:.4f}\n"
+                f"  SL {item.stop:.4f}, TP {item.take:.4f}, PnL {item.pnl:+.2f} USDT"
                 for item in positions
             )
+        if command == "/report":
+            pnl = await PnlMetricsService().summary(db)
+            positions = (
+                await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))
+            ).scalars().all()
+            lines = [
+                "📊 ПОЛНЫЙ ТОРГОВЫЙ ОТЧЁТ",
+                f"Открытых позиций: {len(positions)}",
+                f"Открытый PnL: {pnl.open_pnl:+.2f} USDT",
+                f"PnL за день: {pnl.pnl_day:+.2f} USDT",
+                f"Общий PnL: {pnl.total_pnl:+.2f} USDT",
+                f"Закрытых сделок: {pnl.trades_count}",
+                f"Доля прибыльных: {pnl.win_rate:.2f}%",
+            ]
+            if positions:
+                lines.extend(["", "Позиции:"])
+                lines.extend(
+                    f"• #{item.id} {item.symbol} {item.side}: вход {item.entry_price:.4f}, "
+                    f"сейчас {item.current_price:.4f}, PnL {item.pnl:+.2f}, SL {item.stop:.4f}, TP {item.take:.4f}"
+                    for item in positions
+                )
+            return "\n".join(lines)
+        if command == "/trades":
+            positions = (
+                await db.execute(
+                    select(Position)
+                    .where(Position.status == "CLOSED")
+                    .order_by(Position.closed_at.desc())
+                    .limit(10)
+                )
+            ).scalars().all()
+            if not positions:
+                return "Закрытых сделок пока нет."
+            return "Последние закрытые сделки:\n" + "\n".join(
+                f"• #{item.id} {item.symbol} {item.side}: вход {item.entry_price:.4f}, "
+                f"выход {item.current_price:.4f}, PnL {item.pnl:+.2f}, причина {item.exit_reason or 'не указана'}"
+                for item in positions
+            )
+        if command == "/why":
+            entries = (
+                await db.execute(
+                    select(LogEntry)
+                    .where(LogEntry.message.like("Auto-trade cycle%"))
+                    .order_by(LogEntry.created_at.desc())
+                    .limit(3)
+                )
+            ).scalars().all()
+            if not entries:
+                return "Отчётов торгового цикла пока нет."
+            return "Последние решения:\n" + "\n\n".join(human_reason(item.message) for item in entries)
+        if command == "/learning":
+            rules = int((await db.execute(select(func.count()).select_from(LearningRule))).scalar_one())
+            observations = int(
+                (await db.execute(select(func.coalesce(func.sum(LearningRule.observations), 0)))).scalar_one()
+            )
+            models = (
+                await db.execute(select(RlModel).order_by(RlModel.created_at.desc()).limit(5))
+            ).scalars().all()
+            lines = [
+                "🧠 СОСТОЯНИЕ ОБУЧЕНИЯ",
+                f"Правил из закрытых сделок: {rules}",
+                f"Наблюдений по сделкам: {observations}",
+                "Последние RL-модели:",
+            ]
+            lines.extend(
+                f"• {item.symbol} {item.timeframe}: {item.status}, "
+                f"доходность {float((item.metrics or {}).get('return_percent', 0)):+.2f}%, "
+                f"причина {(item.metrics or {}).get('promotion_reason', 'нет')}"
+                for item in models
+            )
+            if not models:
+                lines.append("• моделей пока нет")
+            return "\n".join(lines)
         if command == "/reconcile":
             result = await OrderReconciliationService().reconcile(db)
-            return f"Reconciliation:\nChecked: {result['checked']}\nUpdated: {result['updated']}\nFailed: {result['failed']}"
-        return "Unknown command. Use /help."
+            return (
+                f"Сверка ордеров:\n"
+                f"Проверено: {result['checked']}\n"
+                f"Обновлено: {result['updated']}\n"
+                f"Ошибок: {result['failed']}"
+            )
+        return "Неизвестная команда. Используй /help."
 
 
 class TelegramPollingBot:

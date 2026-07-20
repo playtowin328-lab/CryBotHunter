@@ -65,6 +65,9 @@ MARKET_DATA_MODE=ccxt
 CORS_ORIGINS=https://your-frontend-domain.up.railway.app
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
+TELEGRAM_TRADE_REPORTS_ENABLED=true
+TELEGRAM_CYCLE_REPORTS_ENABLED=true
+TELEGRAM_CYCLE_REPORT_INTERVAL_MINUTES=15
 TRADER_LOOP_SECONDS=60
 LLM_PROVIDER=none
 OPENAI_API_KEY=
@@ -117,6 +120,14 @@ MARKET_DATA_MODE=ccxt
 TELEGRAM_BOT_TOKEN=123456:telegram-token-from-botfather
 TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TRADER_LOOP_SECONDS=60
+TELEGRAM_TRADE_REPORTS_ENABLED=true
+TELEGRAM_CYCLE_REPORTS_ENABLED=true
+TELEGRAM_CYCLE_REPORT_INTERVAL_MINUTES=15
+PAPER_EXPLORATION_ENABLED=true
+PAPER_EXPLORATION_MIN_SCORE=65
+PAPER_EXPLORATION_RISK_PERCENT=0.25
+PAPER_EXPLORATION_MAX_POSITIONS=2
+PAPER_EXPLORATION_COOLDOWN_MINUTES=240
 SAFETY_CHECK_ENABLED=true
 SAFETY_CHECK_SYMBOL=BTC/USDT
 SAFETY_RETRY_ATTEMPTS=5
@@ -163,6 +174,8 @@ STRATEGY_OPTIMIZER_TOP_N=5
 ```
 
 `PAPER_TRADING=true` controls order execution only. Paper orders and balances remain virtual while `MARKET_DATA_MODE=ccxt` reads real public exchange prices and candles. The legacy value `MARKET_DATA_MODE=paper` is treated as the same real public feed for backward compatibility. Synthetic data is available only with the explicit value `MARKET_DATA_MODE=synthetic` and must never be used by the RL trainer.
+
+`PAPER_EXPLORATION_ENABLED=true` lets the trader open small, explicitly labelled test positions when the strict strategy returns `WAIT` but the setup score is above `PAPER_EXPLORATION_MIN_SCORE`. Exploration is impossible outside paper mode, keeps liquidity, cooldown, exposure, daily-loss, and drawdown protections, caps risk with `PAPER_EXPLORATION_RISK_PERCENT`, limits simultaneous exploratory positions, and pauses the same symbol for the configured cooldown after an entry. It exists to generate real-price paper outcomes for the learning memory without weakening live-trading gates.
 
 For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
@@ -264,6 +277,10 @@ Supported commands:
 - `/balance`
 - `/stats`
 - `/positions`
+- `/report`
+- `/trades`
+- `/why`
+- `/learning`
 - `/panic`
 - `/resume`
 - `/stop`
@@ -271,6 +288,7 @@ Supported commands:
 ## Current MVP Behavior
 
 - Uses paper trading by default through `PAPER_TRADING=true`.
+- Can open low-risk, clearly labelled exploratory paper positions from strong neutral setups so the learning loop can collect closed-trade outcomes without placing real orders.
 - Blocks non-sandbox live exchange execution unless `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=true` is deliberately set.
 - Supports a dedicated `APP_PROCESS=trader` worker that loops automatically, manages open positions, and scans for new entries.
 - Registers/logs in users with JWT.
@@ -286,7 +304,7 @@ Supported commands:
 - Caps each new position by both loss budget and configured deposit percentage.
 - Switches to `Only Close`, sends a critical Telegram alert, and emergency-closes open positions when portfolio drawdown reaches the configured threshold.
 - Takes partial profit at a configured R-multiple, reduces remaining exposure, and lets the rest run with breakeven/trailing logic.
-- Sends Telegram notifications when a paper position is opened.
+- Sends detailed Russian Telegram reports for worker startup, every configured cycle interval, paper/live entries, risk plan, current PnL, protection changes, partial profit, closing reason, final result, learning update, and worker/exchange errors.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.

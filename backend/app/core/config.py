@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     log_retention_days: int = 90
     telegram_bot_token: str | None = None
     telegram_allowed_chat_ids_raw: str = Field(default="", validation_alias="TELEGRAM_ALLOWED_CHAT_IDS")
+    telegram_trade_reports_enabled: bool = True
+    telegram_cycle_reports_enabled: bool = True
+    telegram_cycle_report_interval_minutes: int = 15
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None
@@ -81,6 +84,11 @@ class Settings(BaseSettings):
     loss_cooldown_global_hours: float = 3.0
     loss_cooldown_loss_streak: int = 2
     loss_cooldown_min_loss: float = 0.0
+    paper_exploration_enabled: bool = False
+    paper_exploration_min_score: int = 65
+    paper_exploration_risk_percent: float = 0.25
+    paper_exploration_max_positions: int = 2
+    paper_exploration_cooldown_minutes: int = 240
     strategy_optimizer_apply_enabled: bool = True
     strategy_optimizer_min_profit_factor: float = 1.05
     strategy_optimizer_min_trades: int = 3

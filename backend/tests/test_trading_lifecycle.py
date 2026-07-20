@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.entities import Position
-from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin
+from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin, StrategySignal
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
@@ -251,6 +251,53 @@ def test_trading_engine_rebases_risk_settings_to_actual_balance():
     updated = engine._settings_with_balance(risk_settings(), 2500)
 
     assert updated.balance == 2500
+
+
+def test_paper_exploration_converts_strong_wait_to_small_test_direction():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_trading=True,
+        paper_exploration_enabled=True,
+        paper_exploration_min_score=65,
+    )
+    wait = StrategySignal(
+        symbol="BTC/USDT",
+        signal="WAIT",
+        score=73,
+        reasons=["long missing: volume above average"],
+    )
+
+    signal, exploration = engine._paper_exploration_signal(coin(), wait)
+
+    assert exploration is True
+    assert signal.signal == "BUY"
+    assert signal.score == 73
+    assert "paper exploration from WAIT" in signal.reasons[0]
+
+
+def test_paper_exploration_never_overrides_hard_market_block_or_live_mode():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_trading=True,
+        paper_exploration_enabled=True,
+        paper_exploration_min_score=65,
+    )
+    wait = StrategySignal(
+        symbol="BTC/USDT",
+        signal="WAIT",
+        score=80,
+        reasons=["volatility too high for safe entry: ATR 9.00%"],
+    )
+
+    signal, exploration = engine._paper_exploration_signal(coin(), wait)
+    assert signal.signal == "WAIT"
+    assert exploration is False
+
+    engine.settings.paper_trading = False
+    safe_wait = wait.model_copy(update={"reasons": ["long missing: MACD positive"]})
+    signal, exploration = engine._paper_exploration_signal(coin(), safe_wait)
+    assert signal.signal == "WAIT"
+    assert exploration is False
 
 
 @pytest.mark.asyncio

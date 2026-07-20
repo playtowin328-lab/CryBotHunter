@@ -1,13 +1,13 @@
 import sqlite3
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
-from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
+from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, StrategySignal, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.agents import AgentOrchestrator
 from app.services.context_manager import ContextManager
 from app.services.control import TradingControlService
@@ -25,6 +25,12 @@ from app.services.risk_manager import DrawdownAssessment, RiskManager, RiskSetti
 from app.services.rl_gate import RlDecisionGate
 from app.services.strategy import StrategyCore
 from app.services.telegram_bot import TelegramNotifier
+from app.services.telegram_reports import (
+    format_partial_take_profit,
+    format_protection_update,
+    format_trade_closed,
+    format_trade_opened,
+)
 
 
 class TradingEngine:
@@ -77,11 +83,25 @@ class TradingEngine:
         decisions: list[TradingDecision] = []
 
         for coin in sorted(coins, key=lambda item: item.rating, reverse=True):
-            signal = self.strategy.evaluate(coin)
+            original_signal = self.strategy.evaluate(coin)
+            signal, exploration = self._paper_exploration_signal(coin, original_signal)
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
             trade_settings = settings
             optimizer_reason = ""
+
+            if exploration:
+                trade_settings = replace(
+                    trade_settings,
+                    risk_percent=min(
+                        float(trade_settings.risk_percent),
+                        max(float(self.settings.paper_exploration_risk_percent), 0.01),
+                    ),
+                    min_rating=min(
+                        int(trade_settings.min_rating),
+                        max(int(self.settings.paper_exploration_min_score), 0),
+                    ),
+                )
 
             optimization = await self.optimizer.best_for(db, coin.symbol, timeframe)
             if optimization:
@@ -89,10 +109,16 @@ class TradingEngine:
 
             if coin.symbol in open_symbols:
                 accepted, reason = False, "position already open for symbol"
+            elif exploration and open_count >= max(int(self.settings.paper_exploration_max_positions), 1):
+                accepted, reason = False, "paper exploration position limit reached"
+            elif exploration and not await self._paper_exploration_cooldown_elapsed(db, coin.symbol):
+                accepted, reason = False, "paper exploration cooldown is active"
             else:
                 accepted, reason = self.risk.can_open(signal, trade_settings, open_count, daily_pnl)
                 if accepted and optimizer_reason:
                     reason = f"{reason}; {optimizer_reason}"
+                if accepted and exploration:
+                    reason = f"{reason}; paper exploration from WAIT"
             if accepted:
                 cooldown = await self.cooldown_guard.assess(db, coin.symbol)
                 if not cooldown.allowed:
@@ -116,7 +142,7 @@ class TradingEngine:
                 elif market_quality.risk_multiplier < 1:
                     trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * market_quality.risk_multiplier, 4))
                     reason = f"{reason}; {market_quality.reason}"
-            if accepted:
+            if accepted and not exploration:
                 quality = await self.quality_gate.assess(db, coin.symbol, timeframe, trade_settings)
                 if not quality.allowed:
                     accepted = False
@@ -126,7 +152,9 @@ class TradingEngine:
                     reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"
-            if accepted:
+            elif accepted and exploration:
+                reason = f"{reason}; paper exploration keeps hard risk and market-quality gates"
+            if accepted and not exploration:
                 rl_assessment = await self.rl_gate.assess(db, coin.symbol, signal.signal)
                 if not rl_assessment.allowed:
                     accepted = False
@@ -158,7 +186,9 @@ class TradingEngine:
                 accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, trade_settings, exposure)
             else:
                 candidate_notional = 0.0
-            if accepted:
+            if accepted and exploration:
+                reason = "risk accepted; paper exploration from WAIT; paper exploration keeps hard risk and market-quality gates"
+            if accepted and not exploration:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
                     accepted = False
@@ -167,23 +197,34 @@ class TradingEngine:
                         f"consensus={committee.consensus_score:.2f}, confidence={committee.final_confidence:.2f}"
                     )
             if accepted:
-                position = await self._open_position(db, coin, signal.signal, signal.reasons, balance, trade_settings)
+                position = await self._open_position(
+                    db,
+                    coin,
+                    signal.signal,
+                    signal.reasons,
+                    balance,
+                    trade_settings,
+                    decision_reason=reason,
+                    paper_exploration=exploration,
+                )
                 if position:
                     open_count += 1
                     open_symbols.add(coin.symbol)
                     side_counts[position.side] = side_counts.get(position.side, 0) + 1
                     exposure["gross"] += candidate_notional
                     exposure["symbols"][coin.symbol] = exposure["symbols"].get(coin.symbol, 0.0) + candidate_notional
-                    db.add(LogEntry(level="INFO", message=f"Opened {signal.signal} paper position for {coin.symbol}"))
-                    message = (
-                        f"Position opened\n"
-                        f"{position.side} {coin.symbol}\n"
-                        f"Entry: {position.entry_price:.4f}\n"
-                        f"Stop: {position.stop:.4f}\n"
-                        f"Take: {position.take:.4f}\n"
-                        f"Score: {signal.score}"
-                    )
-                    await self.telegram.broadcast(message)
+                    entry_kind = "paper exploration" if exploration else "strategy"
+                    db.add(LogEntry(level="INFO", message=f"Opened {entry_kind} {signal.signal} position for {coin.symbol}"))
+                    if self.settings.telegram_trade_reports_enabled:
+                        await self.telegram.broadcast(
+                            format_trade_opened(
+                                position,
+                                score=signal.score,
+                                reason=reason,
+                                paper_trading=self.settings.paper_trading,
+                                exploration=exploration,
+                            )
+                        )
                     decisions.append(
                         TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="OPENED", reason=reason)
                     )
@@ -241,6 +282,8 @@ class TradingEngine:
                     db.add(LogEntry(level="INFO", message=f"Partially closed {position.symbol} #{position.id}: remaining={position.volume:.6f}"))
                 if self._apply_breakeven(position):
                     db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
+                    if self.settings.telegram_trade_reports_enabled:
+                        await self.telegram.broadcast(format_protection_update(position, "BREAKEVEN"))
                 self._apply_trailing_stop(position)
                 position.pnl = await self._position_total_pnl(db, position, coin.price)
                 exit_reason = self._exit_reason(position)
@@ -251,8 +294,10 @@ class TradingEngine:
                     id=position.id,
                     symbol=position.symbol,
                     side=position.side,
+                    entry_price=position.entry_price,
                     previous_price=previous_prices.get(position.id, position.current_price),
                     current_price=position.current_price,
+                    volume=position.volume,
                     pnl=position.pnl,
                     status=position.status,
                     exit_reason=position.exit_reason,
@@ -265,6 +310,73 @@ class TradingEngine:
         closed = sum(1 for item in updates if item.status == "CLOSED")
         return TradingTickOut(checked=len(positions), closed=closed, updated=updates)
 
+    def _paper_exploration_signal(
+        self,
+        coin: MarketCoin,
+        signal: StrategySignal,
+    ) -> tuple[StrategySignal, bool]:
+        if (
+            not self.settings.paper_trading
+            or not self.settings.paper_exploration_enabled
+            or signal.signal != "WAIT"
+            or signal.score < self.settings.paper_exploration_min_score
+        ):
+            return signal, False
+
+        hard_blocks = ("blocked by market regime", "volatility too low", "volatility too high")
+        if any(marker in reason for marker in hard_blocks for reason in signal.reasons):
+            return signal, False
+
+        bullish_votes = sum(
+            (
+                coin.regime in {"TRENDING_UP", "UNKNOWN"},
+                coin.ema20 > coin.ema50,
+                coin.ema50 > coin.ema200,
+                coin.price > coin.ema20,
+                coin.rsi >= 50,
+                coin.macd > 0,
+                coin.price_change_percent >= 0,
+            )
+        )
+        bearish_votes = sum(
+            (
+                coin.regime in {"TRENDING_DOWN", "UNKNOWN"},
+                coin.ema20 < coin.ema50,
+                coin.ema50 < coin.ema200,
+                coin.price < coin.ema20,
+                coin.rsi < 50,
+                coin.macd < 0,
+                coin.price_change_percent < 0,
+            )
+        )
+        if bullish_votes == bearish_votes:
+            direction = "BUY" if coin.price_change_percent >= 0 else "SELL"
+        else:
+            direction = "BUY" if bullish_votes > bearish_votes else "SELL"
+        reasons = [
+            f"paper exploration from WAIT: bullish_votes={bullish_votes}, bearish_votes={bearish_votes}",
+            *signal.reasons[:3],
+        ]
+        return StrategySignal(symbol=signal.symbol, signal=direction, score=signal.score, reasons=reasons), True
+
+    async def _paper_exploration_cooldown_elapsed(self, db: AsyncSession, symbol: str) -> bool:
+        cooldown_minutes = max(int(self.settings.paper_exploration_cooldown_minutes), 0)
+        if cooldown_minutes == 0:
+            return True
+        entered_at = (
+            await db.execute(
+                select(Position.entered_at)
+                .where(Position.symbol == symbol)
+                .order_by(Position.entered_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if not entered_at:
+            return True
+        if entered_at.tzinfo is None:
+            entered_at = entered_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - entered_at >= timedelta(minutes=cooldown_minutes)
+
     async def _open_position(
         self,
         db: AsyncSession,
@@ -273,6 +385,8 @@ class TradingEngine:
         signal_reasons: list[str],
         balance: float,
         settings: RiskSettings,
+        decision_reason: str = "",
+        paper_exploration: bool = False,
     ) -> Position | None:
         side = "LONG" if signal == "BUY" else "SHORT"
         stop, take, initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
@@ -298,6 +412,9 @@ class TradingEngine:
         entry_price = entry_order.average_price
         volume = entry_order.filled_amount or entry_order.requested_amount
         stop, take, initial_risk = self._exit_plan(entry_price, coin.atr, side, settings)
+        entry_context = self.learning.entry_context(coin, signal, signal_reasons)
+        entry_context["paper_exploration"] = paper_exploration
+        entry_context["decision_reason"] = decision_reason
         position = Position(
             symbol=coin.symbol,
             side=side,
@@ -316,7 +433,7 @@ class TradingEngine:
             trailing_stop_percent=settings.trailing_stop_percent,
             highest_price=entry_price,
             lowest_price=entry_price,
-            entry_context=self.learning.entry_context(coin, signal, signal_reasons),
+            entry_context=entry_context,
         )
         db.add(position)
         await db.flush()
@@ -418,13 +535,15 @@ class TradingEngine:
             )
         )
         position.pnl = await self._position_total_pnl(db, position, price)
-        await self.telegram.broadcast(
-            f"Partial take profit\n"
-            f"{position.side} {position.symbol}\n"
-            f"Closed: {close_volume:.6f}\n"
-            f"Exit: {exit_order.average_price:.4f}\n"
-            f"Profit: {partial_profit:.2f}"
-        )
+        if self.settings.telegram_trade_reports_enabled:
+            await self.telegram.broadcast(
+                format_partial_take_profit(
+                    position,
+                    closed_volume=close_volume,
+                    exit_price=exit_order.average_price,
+                    profit=partial_profit,
+                )
+            )
         return True
 
     def _partial_take_profit_reached(self, position: Position, price: float) -> bool:
@@ -508,13 +627,10 @@ class TradingEngine:
             db.add(LogEntry(level="ERROR", message=f"SQLite trade memory failed for {position.symbol} #{position.id}: {exc}"))
         db.add(LogEntry(level="INFO", message=f"Closed {position.symbol} #{position.id}: {reason}, pnl={position.pnl:.2f}"))
         db.add(LogEntry(level="INFO", message=f"Learning updated from {position.symbol} #{position.id}: reason={reason}, pnl={position.pnl:.2f}"))
-        await self.telegram.broadcast(
-            f"Position closed\n"
-            f"{position.side} {position.symbol}\n"
-            f"Reason: {reason}\n"
-            f"Exit: {exit_order.average_price:.4f}\n"
-            f"PnL: {position.pnl:.2f}"
-        )
+        if self.settings.telegram_trade_reports_enabled:
+            await self.telegram.broadcast(
+                format_trade_closed(position, exit_price=exit_order.average_price, reason=reason)
+            )
 
     def _apply_trailing_stop(self, position: Position) -> None:
         if position.trailing_stop_percent <= 0:

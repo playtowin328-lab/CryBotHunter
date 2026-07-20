@@ -63,7 +63,11 @@ class ExchangeClient:
         self.api_key = api_key
         self.secret_key = secret_key
         self.passphrase = passphrase
-        self._clients: list[ccxt.Exchange] = []
+        # Reuse one CCXT instance per authentication mode. Creating a new
+        # Binance instance for every ticker/candle call reloads all market
+        # metadata, consumes a large amount of request weight, and retains
+        # sessions/market caches until shutdown.
+        self._clients: dict[bool, ccxt.Exchange] = {}
 
     @classmethod
     def from_user_settings(cls, settings: UserSettings) -> "ExchangeClient":
@@ -166,12 +170,22 @@ class ExchangeClient:
         return await asyncio.to_thread(client.fetch_order, order_id, symbol)
 
     def _client(self, authenticated: bool) -> ccxt.Exchange:
+        cached = self._clients.get(authenticated)
+        if cached is not None:
+            return cached
         exchange_class = getattr(ccxt, self.exchange, None)
         if exchange_class is None:
             raise RuntimeError(f"Unsupported exchange: {self.exchange}")
+        market_type = self.settings.exchange_default_type
+        options: dict[str, Any] = {"defaultType": market_type}
+        # CCXT otherwise loads Binance spot, USDT futures and coin futures
+        # exchangeInfo together. Spot workers must never spend request weight
+        # on fapi/dapi metadata they do not use.
+        if self.exchange == "binance" and market_type == "spot":
+            options["fetchMarkets"] = ["spot"]
         params: dict[str, Any] = {
             "enableRateLimit": True,
-            "options": {"defaultType": self.settings.exchange_default_type},
+            "options": options,
         }
         if authenticated:
             api_key = self.api_key or self.settings.exchange_api_key
@@ -186,11 +200,11 @@ class ExchangeClient:
         client = exchange_class(params)
         if authenticated and self.settings.exchange_sandbox_enabled and hasattr(client, "set_sandbox_mode"):
             client.set_sandbox_mode(True)
-        self._clients.append(client)
+        self._clients[authenticated] = client
         return client
 
     async def close(self) -> None:
-        clients, self._clients = self._clients, []
+        clients, self._clients = list(self._clients.values()), {}
         for client in clients:
             close = getattr(client, "close", None)
             if not callable(close):

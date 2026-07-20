@@ -19,6 +19,18 @@ class FakeMarketClient:
         return "0.012"
 
 
+class FakeExchange:
+    instances = []
+
+    def __init__(self, params):
+        self.params = params
+        self.closed = False
+        self.__class__.instances.append(self)
+
+    def close(self):
+        self.closed = True
+
+
 def test_exchange_blocks_live_without_sandbox_by_default(monkeypatch):
     client = ExchangeClient()
     monkeypatch.setattr(client.settings, "exchange_sandbox_enabled", False)
@@ -70,3 +82,18 @@ def test_prepare_order_blocks_below_exchange_minimum(monkeypatch):
 
     with pytest.raises(RuntimeError, match="below exchange minimum"):
         client._prepare_order_sync("BTC/USDT", 0.012345, 100)
+
+
+def test_binance_spot_client_is_reused_and_does_not_load_futures_markets(monkeypatch):
+    FakeExchange.instances = []
+    monkeypatch.setattr("app.services.exchange.ccxt.binance", FakeExchange)
+    client = ExchangeClient(exchange="binance")
+    monkeypatch.setattr(client.settings, "exchange_default_type", "spot")
+
+    first = client._client(authenticated=False)
+    second = client._client(authenticated=False)
+
+    assert first is second
+    assert len(FakeExchange.instances) == 1
+    assert first.params["options"]["defaultType"] == "spot"
+    assert first.params["options"]["fetchMarkets"] == ["spot"]

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 import ccxt
 from sqlalchemy import select
@@ -14,6 +15,8 @@ from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.locks import RedisLockManager
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
+from app.services.telegram_bot import TelegramNotifier
+from app.services.telegram_reports import format_cycle_report, format_worker_error, format_worker_started
 from app.services.trading_engine import TradingEngine
 
 logger = logging.getLogger(__name__)
@@ -31,7 +34,18 @@ async def main() -> None:
     settings = get_settings()
     locks = RedisLockManager()
     control = TradingControlService()
+    notifier = TelegramNotifier()
+    last_cycle_report_at: datetime | None = None
+    last_error_report_at: datetime | None = None
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
+    if settings.telegram_trade_reports_enabled:
+        await notifier.broadcast(
+            format_worker_started(
+                paper_trading=settings.paper_trading,
+                loop_seconds=settings.trader_loop_seconds,
+                exploration_enabled=settings.paper_exploration_enabled,
+            )
+        )
     while not shutdown.requested:
         current_exchange = settings.default_exchange
         exchange: ExchangeClient | None = None
@@ -76,6 +90,22 @@ async def main() -> None:
                                 logger.info(summary)
                                 db.add(LogEntry(level="INFO", message=summary))
                                 await db.commit()
+                                report_due = _report_due(
+                                    last_cycle_report_at,
+                                    settings.telegram_cycle_report_interval_minutes,
+                                )
+                                if (
+                                    settings.telegram_cycle_reports_enabled
+                                    and (report_due or run.opened > 0 or tick.closed > 0)
+                                ):
+                                    await notifier.broadcast(
+                                        format_cycle_report(
+                                            run,
+                                            tick,
+                                            paper_trading=settings.paper_trading,
+                                        )
+                                    )
+                                    last_cycle_report_at = datetime.now(timezone.utc)
         except ccxt.BaseError as exc:
             message = exchange_error_message(
                 exc,
@@ -85,9 +115,17 @@ async def main() -> None:
             )
             logger.error("Trader worker exchange unavailable: %s", message)
             await _record_worker_log(message)
+            if _report_due(last_error_report_at, 15):
+                await notifier.broadcast(format_worker_error("биржа недоступна", message))
+                last_error_report_at = datetime.now(timezone.utc)
             delay = max(settings.trader_loop_seconds, 300)
-        except Exception:
+        except Exception as exc:
             logger.exception("Trader worker loop failed")
+            if _report_due(last_error_report_at, 15):
+                await notifier.broadcast(
+                    format_worker_error("ошибка торгового цикла", f"{type(exc).__name__}: {str(exc)[:800]}")
+                )
+                last_error_report_at = datetime.now(timezone.utc)
         finally:
             if exchange is not None:
                 await exchange.close()
@@ -114,13 +152,22 @@ async def _load_safety_credentials() -> SafetyCredentials | None:
 def _cycle_summary(scanned: int, opened: int, skipped: int, decisions: list, closed: int) -> str:
     samples = "; ".join(
         f"{decision.symbol}={decision.signal}/{decision.action}({decision.score}): {decision.reason}"
-        for decision in decisions[:3]
+        for decision in decisions
     )
     message = (
         f"Auto-trade cycle scanned={scanned} opened={opened} skipped={skipped} "
         f"closed={closed} learning_updates={closed}"
     )
     return f"{message}; {samples}"[:1000] if samples else message
+
+
+def _report_due(last_sent_at: datetime | None, interval_minutes: int) -> bool:
+    if last_sent_at is None:
+        return True
+    if last_sent_at.tzinfo is None:
+        last_sent_at = last_sent_at.replace(tzinfo=timezone.utc)
+    interval = timedelta(minutes=max(int(interval_minutes), 1))
+    return datetime.now(timezone.utc) - last_sent_at >= interval
 
 
 async def _record_worker_log(message: str) -> None:

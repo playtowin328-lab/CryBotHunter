@@ -113,8 +113,10 @@ class PositionUpdateOut(BaseModel):
     id: int
     symbol: str
     side: str
+    entry_price: float = 0
     previous_price: float
     current_price: float
+    volume: float = 0
     pnl: float
     status: str
     exit_reason: str | None = None
