@@ -290,6 +290,16 @@ class TelegramPollingBot:
                 for update in updates:
                     self.offset = max(self.offset, update["update_id"] + 1)
                     await self._handle_update(update, session_factory)
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                if status_code == 409:
+                    logger.warning("Telegram polling conflict: another poller is active; retrying")
+                else:
+                    logger.error("Telegram polling HTTP error status=%s", status_code)
+                await asyncio.sleep(5)
+            except httpx.HTTPError as exc:
+                logger.warning("Telegram polling transport error type=%s", type(exc).__name__)
+                await asyncio.sleep(5)
             except Exception:
                 logger.exception("Telegram polling error")
                 await asyncio.sleep(5)
