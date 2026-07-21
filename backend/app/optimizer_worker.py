@@ -4,6 +4,7 @@ import logging
 from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry
+from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
 from app.services.optimizer import StrategyOptimizerService
 
@@ -15,16 +16,19 @@ async def main() -> None:
     settings = get_settings()
     optimizer = StrategyOptimizerService()
     locks = RedisLockManager()
+    heartbeat = HeartbeatReporter("optimizer-worker")
     logger.info(
         "Optimizer worker started symbols=%s timeframes=%s loop=%ss",
         settings.candle_ingest_symbols,
         settings.candle_ingest_timeframes,
         settings.strategy_optimizer_loop_seconds,
     )
+    await heartbeat.start()
     while True:
         try:
             if not settings.strategy_optimizer_worker_enabled:
                 logger.warning("Optimizer worker disabled by STRATEGY_OPTIMIZER_WORKER_ENABLED=false")
+                await heartbeat.set_status("DISABLED", {"enabled": False})
                 await asyncio.sleep(settings.strategy_optimizer_loop_seconds)
                 continue
             async with AsyncSessionLocal() as db:
@@ -56,8 +60,13 @@ async def main() -> None:
                                     await db.commit()
                         db.add(LogEntry(level="INFO", message=f"Optimizer worker refreshed={refreshed} skipped={skipped}"))
                         await db.commit()
-        except Exception:
+                        await heartbeat.set_status(
+                            "OK",
+                            {"refreshed": len(refreshed), "skipped": len(skipped)},
+                        )
+        except Exception as exc:
             logger.exception("Optimizer worker loop failed")
+            await heartbeat.set_status("ERROR", {"error": type(exc).__name__})
         await asyncio.sleep(settings.strategy_optimizer_loop_seconds)
 
 

@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     telegram_trade_reports_enabled: bool = True
     telegram_cycle_reports_enabled: bool = True
     telegram_cycle_report_interval_minutes: int = 5
+    telegram_outbox_enabled: bool = True
+    telegram_outbox_retry_limit: int = 8
+    telegram_outbox_batch_size: int = 20
+    telegram_outbox_retention_days: int = 7
+    worker_heartbeat_enabled: bool = True
+    worker_heartbeat_interval_seconds: int = 30
+    worker_heartbeat_stale_seconds: int = 180
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None

@@ -12,6 +12,7 @@ from app.models.entities import LogEntry, UserSettings
 from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient, exchange_error_message
+from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
@@ -36,9 +37,11 @@ async def main() -> None:
     locks = RedisLockManager()
     control = TradingControlService()
     notifier = TelegramNotifier()
+    heartbeat = HeartbeatReporter("trader-worker")
     last_cycle_report_at: datetime | None = None
     last_error_report_at: datetime | None = None
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
+    await heartbeat.start()
     if settings.telegram_trade_reports_enabled:
         await notifier.broadcast(
             format_worker_started(
@@ -62,6 +65,7 @@ async def main() -> None:
                         if not user_settings:
                             db.add(LogEntry(level="WARNING", message="Trader worker is waiting for the first user settings row"))
                             await db.commit()
+                            await heartbeat.set_status("DEGRADED", {"reason": "waiting_for_settings"})
                         else:
                             current_exchange = user_settings.exchange
                             exchange = ExchangeClient.from_user_settings(user_settings)
@@ -72,6 +76,7 @@ async def main() -> None:
                             paused, reason = await control.is_paused()
                             if paused:
                                 logger.warning("Trader worker entry scan paused: %s", reason)
+                                await heartbeat.set_status("PAUSED", {"reason": reason or "unknown"})
                             elif not shutdown.requested:
                                 risk_settings = RiskSettings(
                                     balance=1000,
@@ -94,6 +99,14 @@ async def main() -> None:
                                 logger.info(summary)
                                 db.add(LogEntry(level="INFO", message=summary))
                                 await db.commit()
+                                await heartbeat.set_status(
+                                    "OK",
+                                    {
+                                        "scanned": run.scanned,
+                                        "opened": run.opened,
+                                        "closed": tick.closed,
+                                    },
+                                )
                                 report_due = _report_due(
                                     last_cycle_report_at,
                                     settings.telegram_cycle_report_interval_minutes,
@@ -126,12 +139,14 @@ async def main() -> None:
             )
             logger.error("Trader worker exchange unavailable: %s", message)
             await _record_worker_log(message)
+            await heartbeat.set_status("DEGRADED", {"error": type(exc).__name__})
             if _report_due(last_error_report_at, 15):
                 await notifier.broadcast(format_worker_error("биржа недоступна", message))
                 last_error_report_at = datetime.now(timezone.utc)
             delay = max(settings.trader_loop_seconds, 300)
         except Exception as exc:
             logger.exception("Trader worker loop failed")
+            await heartbeat.set_status("ERROR", {"error": type(exc).__name__})
             if _report_due(last_error_report_at, 15):
                 await notifier.broadcast(
                     format_worker_error("ошибка торгового цикла", f"{type(exc).__name__}: {str(exc)[:800]}")
@@ -142,6 +157,7 @@ async def main() -> None:
                 await exchange.close()
         if await shutdown.wait(delay):
             break
+    await heartbeat.stop()
     logger.info("Trader worker shutdown complete")
 
 

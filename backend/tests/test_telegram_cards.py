@@ -45,6 +45,29 @@ def test_position_card_is_rendered_as_telegram_ready_jpeg():
     assert_valid_card(payload)
 
 
+def test_position_card_renders_real_candlestick_chart():
+    candles = []
+    for index in range(48):
+        open_price = 99.0 + index * 0.1
+        close_price = open_price + (0.35 if index % 3 else -0.2)
+        candles.append(
+            [
+                1_700_000_000_000 + index * 3_600_000,
+                open_price,
+                max(open_price, close_price) + 0.25,
+                min(open_price, close_price) - 0.2,
+                close_price,
+                1000 + index,
+            ]
+        )
+
+    plain = render_position_card(position(), event="OPENED", score=73)
+    chart = render_position_card(position(), event="OPENED", score=73, candles=candles)
+
+    assert_valid_card(chart)
+    assert chart != plain
+
+
 def test_cycle_card_is_rendered_as_telegram_ready_jpeg():
     run = TradingRunOut(
         scanned=5,

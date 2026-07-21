@@ -267,6 +267,34 @@ def format_worker_error(title: str, detail: str) -> str:
     )
 
 
+def format_worker_heartbeat_event(
+    *,
+    kind: str,
+    worker_name: str,
+    status: str,
+    age_seconds: int,
+    detail: dict | None = None,
+) -> str:
+    recovered = kind.upper() == "RECOVERED"
+    heading = "✅ WORKER ВОССТАНОВЛЕН" if recovered else "🚨 WORKER НЕ ОТВЕЧАЕТ"
+    age = _duration_seconds(age_seconds)
+    detail_text = ", ".join(f"{key}={value}" for key, value in (detail or {}).items()) or "нет"
+    action = (
+        "Heartbeat снова поступает; worker вернулся в штатный мониторинг."
+        if recovered
+        else "Новые циклы этого worker могут не выполняться. Проверь контейнер и последние Railway-логи."
+    )
+    return (
+        f"<b>{heading}</b>\n"
+        f"<code>{_html(worker_name)}</code>\n\n"
+        "<b>Состояние</b>\n"
+        f"├ Последний статус: <code>{_html(status)}</code>\n"
+        f"├ Возраст heartbeat: <code>{age}</code>\n"
+        f"└ Детали: {_html(detail_text)}\n\n"
+        f"<i>{action}</i>"
+    )
+
+
 def human_reason(reason: str) -> str:
     normalized = reason.strip()
     if normalized in DECISION_REASON_LABELS:
@@ -420,6 +448,16 @@ def _duration(start: datetime | None, end: datetime | None) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+
+
+def _duration_seconds(seconds: int) -> str:
+    minutes, remaining = divmod(max(int(seconds), 0), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours} ч {minutes} мин"
+    if minutes:
+        return f"{minutes} мин {remaining} сек"
+    return f"{remaining} сек"
 
 
 def _close_explanation(side: str, exit_price: float, entry_price: float, reason: str) -> str:

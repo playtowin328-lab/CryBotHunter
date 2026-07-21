@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import logging
+import math
 import textwrap
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
@@ -44,6 +45,7 @@ def safe_render_position_card(
     score: int | None = None,
     exit_price: float | None = None,
     exit_reason: str | None = None,
+    candles: list[list[float]] | None = None,
 ) -> bytes | None:
     try:
         return render_position_card(
@@ -52,6 +54,7 @@ def safe_render_position_card(
             score=score,
             exit_price=exit_price,
             exit_reason=exit_reason,
+            candles=candles,
         )
     except (OSError, ValueError):
         logger.exception("Failed to render Telegram position card for %s #%s", position.symbol, position.id)
@@ -78,6 +81,7 @@ def render_position_card(
     score: int | None = None,
     exit_price: float | None = None,
     exit_reason: str | None = None,
+    candles: list[list[float]] | None = None,
 ) -> bytes:
     context = position.entry_context or {}
     event_key = event.upper()
@@ -131,8 +135,21 @@ def render_position_card(
         identifier=f"#{position.id}",
     )
     _primary_block(draw, primary_label, primary_value, primary_hint, accent)
-    _metric_grid(draw, metrics, accent)
-    _footer(draw, "  ·  ".join(footer_parts))
+    normalized_candles = _normalize_candles(candles)
+    if normalized_candles:
+        _candlestick_chart(
+            draw,
+            normalized_candles,
+            entry=entry_price,
+            current=current_price,
+            stop=float(position.stop),
+            take=float(position.take),
+        )
+        _compact_metrics(draw, metrics, accent)
+        _footer(draw, "  ·  ".join(footer_parts), line_y=682, text_y=702, width=82)
+    else:
+        _metric_grid(draw, metrics, accent)
+        _footer(draw, "  ·  ".join(footer_parts))
     return _encode(image)
 
 
@@ -231,11 +248,126 @@ def _metric_grid(draw: ImageDraw.ImageDraw, metrics: list[tuple[str, str]], acce
         draw.rounded_rectangle((box[0] + 28, box[3] - 18, box[0] + 104, box[3] - 12), radius=3, fill=accent)
 
 
-def _footer(draw: ImageDraw.ImageDraw, text: str) -> None:
-    wrapped = textwrap.wrap(text, width=76)[:2]
-    draw.line((88, 653, 1110, 653), fill=PANEL_BORDER, width=2)
+def _compact_metrics(draw: ImageDraw.ImageDraw, metrics: list[tuple[str, str]], accent: str) -> None:
+    left, right, gap = 88, 1110, 14
+    width = (right - left - gap * 3) // 4
+    for index, (label, value) in enumerate(metrics):
+        x1 = left + index * (width + gap)
+        x2 = x1 + width
+        draw.rounded_rectangle((x1, 560, x2, 660), radius=18, fill=(4, 12, 32, 180), outline=PANEL_BORDER, width=2)
+        draw.text((x1 + 18, 578), label, font=_font(13, bold=True), fill=MUTED)
+        draw.text((x1 + 18, 610), value, font=_font(22, bold=True), fill=WHITE)
+        draw.rounded_rectangle((x1 + 18, 646, x1 + 76, 651), radius=2, fill=accent)
+
+
+def _candlestick_chart(
+    draw: ImageDraw.ImageDraw,
+    candles: list[tuple[float, float, float, float, float]],
+    *,
+    entry: float,
+    current: float,
+    stop: float,
+    take: float,
+) -> None:
+    panel = (88, 285, 1110, 540)
+    draw.rounded_rectangle(panel, radius=22, fill=(4, 12, 32, 190), outline=PANEL_BORDER, width=2)
+    draw.text((110, 302), f"REAL MARKET · BINANCE · 1H · {len(candles)} CANDLES", font=_font(15, bold=True), fill=MUTED)
+
+    plot_left, plot_top, plot_right, plot_bottom = 110, 334, 900, 516
+    reference_lines = (
+        ("ENTRY", entry, MUTED),
+        ("NOW", current, CYAN),
+        ("SL", stop, RED),
+        ("TP", take, GREEN),
+    )
+    low = min([item[3] for item in candles] + [value for _, value, _ in reference_lines])
+    high = max([item[2] for item in candles] + [value for _, value, _ in reference_lines])
+    spread = max(high - low, max(abs(high), 1.0) * 0.001)
+    low -= spread * 0.06
+    high += spread * 0.06
+
+    def price_y(price: float) -> int:
+        ratio = (high - price) / (high - low)
+        return int(plot_top + ratio * (plot_bottom - plot_top))
+
+    for index in range(5):
+        y = int(plot_top + index * (plot_bottom - plot_top) / 4)
+        draw.line((plot_left, y, plot_right, y), fill=(96, 118, 168, 35), width=1)
+
+    step = (plot_right - plot_left) / max(len(candles), 1)
+    body_width = max(min(int(step * 0.58), 10), 3)
+    for index, (_, open_price, high_price, low_price, close_price) in enumerate(candles):
+        x = int(plot_left + step * (index + 0.5))
+        color = GREEN if close_price >= open_price else RED
+        draw.line((x, price_y(high_price), x, price_y(low_price)), fill=color, width=2)
+        open_y = price_y(open_price)
+        close_y = price_y(close_price)
+        body_top, body_bottom = sorted((open_y, close_y))
+        if body_bottom - body_top < 2:
+            body_bottom = body_top + 2
+        draw.rounded_rectangle(
+            (x - body_width // 2, body_top, x + body_width // 2, body_bottom),
+            radius=1,
+            fill=color,
+        )
+
+    label_positions = _spread_chart_labels([(price_y(value), label, value, color) for label, value, color in reference_lines])
+    for line_y, label_y, label, value, color in label_positions:
+        draw.line((plot_left, line_y, 1088, line_y), fill=color, width=2)
+        draw.rounded_rectangle((914, label_y - 2, 1089, label_y + 18), radius=7, fill=(4, 12, 32, 235))
+        draw.text((924, label_y), f"{label}  {_price(value)}", font=_font(13, bold=True), fill=color)
+
+
+def _spread_chart_labels(
+    labels: list[tuple[int, str, float, str]],
+) -> list[tuple[int, int, str, float, str]]:
+    ordered = sorted(labels, key=lambda item: item[0])
+    positions: list[list[object]] = []
+    previous = 330
+    for line_y, label, value, color in ordered:
+        label_y = max(line_y - 8, previous + 21)
+        positions.append([line_y, label_y, label, value, color])
+        previous = label_y
+    overflow = max(int(positions[-1][1]) - 511, 0) if positions else 0
+    if overflow:
+        for item in positions:
+            item[1] = int(item[1]) - overflow
+    return [
+        (int(item[0]), int(item[1]), str(item[2]), float(item[3]), str(item[4]))
+        for item in positions
+    ]
+
+
+def _normalize_candles(candles: list[list[float]] | None) -> list[tuple[float, float, float, float, float]]:
+    normalized: list[tuple[float, float, float, float, float]] = []
+    for row in candles or []:
+        if len(row) < 5:
+            continue
+        try:
+            timestamp, open_price, high_price, low_price, close_price = (float(value) for value in row[:5])
+        except (TypeError, ValueError):
+            continue
+        values = (timestamp, open_price, high_price, low_price, close_price)
+        if not all(math.isfinite(value) for value in values):
+            continue
+        if min(open_price, high_price, low_price, close_price) <= 0 or high_price < low_price:
+            continue
+        normalized.append(values)
+    return normalized[-48:] if len(normalized) >= 8 else []
+
+
+def _footer(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    *,
+    line_y: int = 653,
+    text_y: int = 678,
+    width: int = 76,
+) -> None:
+    wrapped = textwrap.wrap(text, width=width)[:2]
+    draw.line((88, line_y, 1110, line_y), fill=PANEL_BORDER, width=2)
     for index, line in enumerate(wrapped):
-        draw.text((88, 678 + index * 27), line, font=_font(18, bold=index == 0), fill=MUTED if index else WHITE)
+        draw.text((88, text_y + index * 27), line, font=_font(18, bold=index == 0), fill=MUTED if index else WHITE)
 
 
 def _event_accent(event: str, pnl: float) -> str:

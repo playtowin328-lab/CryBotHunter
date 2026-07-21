@@ -7,6 +7,7 @@ from app.services.telegram_reports import (
     format_position_details,
     format_trade_closed,
     format_trade_opened,
+    format_worker_heartbeat_event,
     split_telegram_message,
 )
 
@@ -139,3 +140,18 @@ def test_long_telegram_report_is_split_without_data_loss():
     assert len(chunks) > 1
     assert all(len(chunk) <= 500 for chunk in chunks)
     assert "строка 199" in chunks[-1]
+
+
+def test_worker_heartbeat_alert_is_readable_and_escaped():
+    report = format_worker_heartbeat_event(
+        kind="STALE",
+        worker_name="trader-worker",
+        status="ERROR",
+        age_seconds=205,
+        detail={"error": "HTTP <timeout>"},
+    )
+
+    assert "trader-worker" in report
+    assert "3 мин 25 сек" in report
+    assert "HTTP &lt;timeout&gt;" in report
+    assert report.count("<b>") == report.count("</b>")

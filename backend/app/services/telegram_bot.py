@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 from html import escape
 import logging
 
@@ -7,15 +8,25 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import LearningRule, LogEntry, Position, RlModel
+from app.models.entities import (
+    LearningRule,
+    LogEntry,
+    Position,
+    RlModel,
+    TelegramOutboxMessage,
+    WorkerHeartbeat,
+)
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
+from app.services.heartbeat import HeartbeatReporter, WorkerHeartbeatService
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.reconciliation import OrderReconciliationService
+from app.services.telegram_outbox import TelegramOutboxService
 from app.services.telegram_reports import (
     format_position_details,
     format_trade_closed,
+    format_worker_heartbeat_event,
     human_reason,
     split_telegram_message,
 )
@@ -27,6 +38,7 @@ class TelegramNotifier:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.base_url = f"https://api.telegram.org/bot{self.settings.telegram_bot_token}"
+        self.outbox = TelegramOutboxService()
 
     @property
     def enabled(self) -> bool:
@@ -85,6 +97,71 @@ class TelegramNotifier:
         photo_filename: str = "trade-card.jpg",
         photo_caption: str | None = None,
         parse_mode: str | None = "HTML",
+        dedupe_key: str | None = None,
+    ) -> int:
+        if not self.enabled:
+            return 0
+        if getattr(self.settings, "telegram_outbox_enabled", True):
+            try:
+                message_ids = await self.outbox.enqueue_many(
+                    self.settings.telegram_allowed_chat_ids,
+                    text=text,
+                    parse_mode=parse_mode,
+                    photo=photo,
+                    photo_filename=photo_filename,
+                    photo_caption=photo_caption,
+                    dedupe_key=dedupe_key,
+                )
+                if not message_ids:
+                    return 0
+                return await self.flush_outbox(message_ids=message_ids)
+            except Exception as exc:
+                logger.warning("Telegram outbox unavailable; using direct delivery error=%s", type(exc).__name__)
+        return await self._broadcast_direct(
+            text,
+            photo=photo,
+            photo_filename=photo_filename,
+            photo_caption=photo_caption,
+            parse_mode=parse_mode,
+        )
+
+    async def flush_outbox(self, *, message_ids: list[int] | None = None) -> int:
+        if not self.enabled or not getattr(self.settings, "telegram_outbox_enabled", True):
+            return 0
+        delivered = 0
+        messages = await self.outbox.claim(message_ids=message_ids)
+        for item in messages:
+            text_delivered = bool(item.text_sent)
+            if not text_delivered:
+                text_delivered = await self.send_message(item.chat_id, item.text, parse_mode=item.parse_mode)
+                if text_delivered:
+                    await self.outbox.mark_progress(item.id, text_sent=True)
+
+            photo_delivered = bool(item.photo_sent) or not item.photo
+            if item.photo and not photo_delivered:
+                photo_delivered = await self.send_photo(
+                    item.chat_id,
+                    item.photo,
+                    filename=item.photo_filename or "trade-card.jpg",
+                    caption=item.photo_caption,
+                )
+                if photo_delivered:
+                    await self.outbox.mark_progress(item.id, photo_sent=True)
+            if text_delivered and photo_delivered:
+                await self.outbox.mark_delivered(item.id)
+                delivered += 1
+            else:
+                await self.outbox.mark_failed(item.id, "TelegramDeliveryError")
+        return delivered
+
+    async def _broadcast_direct(
+        self,
+        text: str,
+        *,
+        photo: bytes | None,
+        photo_filename: str,
+        photo_caption: str | None,
+        parse_mode: str | None,
     ) -> int:
         delivered = 0
         for chat_id in self.settings.telegram_allowed_chat_ids:
@@ -141,8 +218,18 @@ class TelegramCommandService:
             open_positions = (
                 await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
             ).scalar_one()
+            pending_notifications = (
+                await db.execute(
+                    select(func.count())
+                    .select_from(TelegramOutboxMessage)
+                    .where(TelegramOutboxMessage.status.in_(("PENDING", "RETRY", "SENDING")))
+                )
+            ).scalar_one()
+            heartbeats = (
+                await db.execute(select(WorkerHeartbeat).order_by(WorkerHeartbeat.worker_name.asc()))
+            ).scalars().all()
             mode = "PAPER — виртуальные деньги" if settings.paper_trading else "LIVE — реальные ордера"
-            return (
+            report = (
                 "<b>🟢 CRYBOTHUNTER · ONLINE</b>\n"
                 f"<code>{mode}</code>\n\n"
                 "<b>Торговля</b>\n"
@@ -152,8 +239,17 @@ class TelegramCommandService:
                 f"├ Тестовые входы: <code>{'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}</code>\n"
                 f"├ Лимит позиций: <code>{settings.paper_exploration_max_positions}</code>\n"
                 f"├ Риск на позицию: <code>до {settings.paper_exploration_risk_percent:.3f}%</code>\n"
-                f"└ Полная сводка: <code>{settings.telegram_cycle_report_interval_minutes} мин.</code>"
+                f"├ Полная сводка: <code>{settings.telegram_cycle_report_interval_minutes} мин.</code>\n"
+                f"└ Telegram outbox: <code>{int(pending_notifications)} в очереди</code>"
             )
+            if heartbeats:
+                report += "\n\n<b>Worker heartbeat</b>\n" + "\n".join(
+                    f"{'🟢' if item.status in {'OK', 'PAUSED', 'DISABLED'} else '🟡'} "
+                    f"{escape(item.worker_name)} · <code>{escape(item.status)}</code> · "
+                    f"{_heartbeat_age(item.last_seen_at)}"
+                    for item in heartbeats
+                )
+            return report
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
             return "Баланс:\n" + "\n".join([f"{asset}: {amount:.2f}" for asset, amount in balance.items()])
@@ -278,31 +374,72 @@ class TelegramPollingBot:
         self.settings = get_settings()
         self.notifier = TelegramNotifier()
         self.commands = TelegramCommandService()
+        self.heartbeat = HeartbeatReporter("telegram")
+        self.heartbeat_service = WorkerHeartbeatService()
         self.offset = 0
+        self.last_outbox_cleanup_at: datetime | None = None
 
     async def run(self, session_factory) -> None:
         if not self.notifier.enabled:
             raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
         logger.info("Telegram polling bot started")
-        while True:
-            try:
-                updates = await self._get_updates()
-                for update in updates:
-                    self.offset = max(self.offset, update["update_id"] + 1)
-                    await self._handle_update(update, session_factory)
-            except httpx.HTTPStatusError as exc:
-                status_code = exc.response.status_code
-                if status_code == 409:
-                    logger.warning("Telegram polling conflict: another poller is active; retrying")
-                else:
-                    logger.error("Telegram polling HTTP error status=%s", status_code)
-                await asyncio.sleep(5)
-            except httpx.HTTPError as exc:
-                logger.warning("Telegram polling transport error type=%s", type(exc).__name__)
-                await asyncio.sleep(5)
-            except Exception:
-                logger.exception("Telegram polling error")
-                await asyncio.sleep(5)
+        await self.heartbeat.start()
+        try:
+            while True:
+                try:
+                    await self._maintenance()
+                    updates = await self._get_updates()
+                    for update in updates:
+                        self.offset = max(self.offset, update["update_id"] + 1)
+                        await self._handle_update(update, session_factory)
+                    await self.heartbeat.set_status("OK", {"offset": self.offset})
+                except httpx.HTTPStatusError as exc:
+                    status_code = exc.response.status_code
+                    if status_code == 409:
+                        logger.warning("Telegram polling conflict: another poller is active; retrying")
+                    else:
+                        logger.error("Telegram polling HTTP error status=%s", status_code)
+                    await self.heartbeat.set_status("DEGRADED", {"http_status": status_code})
+                    await asyncio.sleep(5)
+                except httpx.HTTPError as exc:
+                    logger.warning("Telegram polling transport error type=%s", type(exc).__name__)
+                    await self.heartbeat.set_status("DEGRADED", {"error": type(exc).__name__})
+                    await asyncio.sleep(5)
+                except Exception as exc:
+                    logger.exception("Telegram polling error")
+                    await self.heartbeat.set_status("ERROR", {"error": type(exc).__name__})
+                    await asyncio.sleep(5)
+        finally:
+            await self.heartbeat.stop()
+
+    async def _maintenance(self) -> None:
+        try:
+            await self.notifier.flush_outbox()
+            now = datetime.now(timezone.utc)
+            if self.last_outbox_cleanup_at is None or now - self.last_outbox_cleanup_at >= timedelta(hours=6):
+                await self.notifier.outbox.cleanup()
+                self.last_outbox_cleanup_at = now
+        except Exception as exc:
+            logger.warning("Telegram outbox maintenance failed error=%s", type(exc).__name__)
+        try:
+            events = await self.heartbeat_service.watchdog_events()
+        except Exception as exc:
+            logger.warning("Worker heartbeat watchdog failed error=%s", type(exc).__name__)
+            return
+        for event in events:
+            await self.notifier.broadcast(
+                format_worker_heartbeat_event(
+                    kind=event.kind,
+                    worker_name=event.worker_name,
+                    status=event.status,
+                    age_seconds=event.age_seconds,
+                    detail=event.detail,
+                ),
+                dedupe_key=(
+                    f"heartbeat:{event.kind}:{event.worker_name}:"
+                    f"{event.last_seen_at.isoformat()}"
+                ),
+            )
 
     async def _get_updates(self) -> list[dict]:
         async with httpx.AsyncClient(timeout=35) as client:
@@ -333,3 +470,12 @@ class TelegramPollingBot:
             reply = await self.commands.handle(text, db)
         parse_mode = "HTML" if "<b>" in reply or "<code>" in reply else None
         await self.notifier.send_message(chat_id, reply, parse_mode=parse_mode)
+
+
+def _heartbeat_age(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    seconds = max(int((datetime.now(timezone.utc) - value).total_seconds()), 0)
+    if seconds < 60:
+        return f"{seconds} сек назад"
+    return f"{seconds // 60} мин назад"

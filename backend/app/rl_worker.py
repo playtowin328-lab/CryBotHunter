@@ -5,6 +5,7 @@ from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry
 from app.safety_manager import SafetyManager, ShutdownController, configure_stdout_logging
+from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
 
 logger = logging.getLogger(__name__)
@@ -24,16 +25,19 @@ async def main() -> None:
     settings = get_settings()
     trainer = RlTrainingService(stop_requested=lambda: shutdown.requested)
     locks = RedisLockManager()
+    heartbeat = HeartbeatReporter("rl-worker")
     logger.info(
         "RL worker started symbols=%s timeframes=%s loop=%ss",
         settings.candle_ingest_symbols,
         settings.candle_ingest_timeframes,
         settings.rl_prediction_loop_seconds,
     )
+    await heartbeat.start()
     while not shutdown.requested:
         try:
             if not settings.rl_trainer_enabled:
                 logger.warning("RL worker disabled by RL_TRAINER_ENABLED=false")
+                await heartbeat.set_status("DISABLED", {"enabled": False})
             else:
                 async with AsyncSessionLocal() as db:
                     async with locks.lock("rl-worker-loop", ttl_seconds=max(settings.rl_prediction_loop_seconds - 5, 60)) as acquired:
@@ -64,12 +68,15 @@ async def main() -> None:
                                         await db.rollback()
                                         db.add(LogEntry(level="ERROR", message=f"RL worker failed for {key}: {exc.__class__.__name__}"))
                                         await db.commit()
-        except Exception:
+                await heartbeat.set_status("OK", {"enabled": True})
+        except Exception as exc:
             logger.exception("RL worker loop failed")
+            await heartbeat.set_status("ERROR", {"error": type(exc).__name__})
         finally:
             await trainer.close()
         if await shutdown.wait(max(settings.rl_prediction_loop_seconds, 60)):
             break
+    await heartbeat.stop()
     logger.info("RL worker shutdown complete")
 
 

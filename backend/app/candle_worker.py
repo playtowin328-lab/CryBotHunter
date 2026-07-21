@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.db.session import AsyncSessionLocal
 from app.models.entities import LogEntry
 from app.services.history import HistoricalDataService
+from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
 
 logging.basicConfig(level=logging.INFO)
@@ -17,6 +18,7 @@ async def main() -> None:
     settings = get_settings()
     history = HistoricalDataService()
     locks = RedisLockManager()
+    heartbeat = HeartbeatReporter("candle-worker")
     delay = settings.candle_ingest_loop_seconds
     logger.info(
         "Candle worker started symbols=%s timeframes=%s loop=%ss",
@@ -24,6 +26,7 @@ async def main() -> None:
         settings.candle_ingest_timeframes,
         settings.candle_ingest_loop_seconds,
     )
+    await heartbeat.start()
     try:
         while True:
             try:
@@ -39,15 +42,19 @@ async def main() -> None:
                             total = sum(inserted.values())
                             db.add(LogEntry(level="INFO", message=f"Candle worker inserted {total} candle(s): {inserted}"))
                             await db.commit()
+                            await heartbeat.set_status("OK", {"inserted": total})
                 delay = settings.candle_ingest_loop_seconds
             except (ccxt.RateLimitExceeded, ccxt.DDoSProtection):
                 delay = _next_rate_limit_delay(delay, settings.candle_ingest_loop_seconds)
                 logger.warning("Binance rate limit reached; candle ingestion will retry in %ss", delay)
-            except Exception:
+                await heartbeat.set_status("DEGRADED", {"reason": "rate_limit", "retry_seconds": delay})
+            except Exception as exc:
                 delay = settings.candle_ingest_loop_seconds
                 logger.exception("Candle worker loop failed")
+                await heartbeat.set_status("ERROR", {"error": type(exc).__name__})
             await asyncio.sleep(delay)
     finally:
+        await heartbeat.stop()
         await history.exchange.close()
 
 

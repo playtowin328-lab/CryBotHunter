@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -228,3 +228,47 @@ class LogEntry(Base):
     level: Mapped[str] = mapped_column(String(16), index=True)
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TelegramOutboxMessage(Base):
+    __tablename__ = "telegram_outbox"
+    __table_args__ = (UniqueConstraint("chat_id", "dedupe_key", name="uq_telegram_outbox_chat_dedupe"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    text: Mapped[str] = mapped_column(Text)
+    parse_mode: Mapped[str | None] = mapped_column(String(16))
+    photo: Mapped[bytes | None] = mapped_column(LargeBinary)
+    photo_filename: Mapped[str | None] = mapped_column(String(255))
+    photo_caption: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), index=True, default="PENDING")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    text_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    photo_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(255))
+    last_error: Mapped[str | None] = mapped_column(String(128))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+
+    worker_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), index=True, default="STARTING")
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, server_default=func.now())
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stale_alerted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

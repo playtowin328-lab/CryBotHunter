@@ -1,6 +1,7 @@
 import sqlite3
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,9 @@ from app.services.telegram_reports import (
 from app.services.telegram_cards import safe_render_position_card
 
 
+logger = logging.getLogger(__name__)
+
+
 class TradingEngine:
     def __init__(self, exchange: ExchangeClient | None = None) -> None:
         self.exchange = exchange or ExchangeClient()
@@ -54,6 +58,33 @@ class TradingEngine:
         self.context = ContextManager()
         self.control = TradingControlService()
         self.settings = get_settings()
+
+    async def _position_card(
+        self,
+        position: Position,
+        *,
+        event: str,
+        score: int | None = None,
+        exit_price: float | None = None,
+        exit_reason: str | None = None,
+    ) -> bytes | None:
+        candles: list[list[float]] | None = None
+        try:
+            candles = await self.exchange.fetch_ohlcv(position.symbol, timeframe="1h", limit=48)
+        except Exception as exc:
+            logger.warning(
+                "Telegram candle chart data unavailable symbol=%s error=%s",
+                position.symbol,
+                type(exc).__name__,
+            )
+        return safe_render_position_card(
+            position,
+            event=event,
+            score=score,
+            exit_price=exit_price,
+            exit_reason=exit_reason,
+            candles=candles,
+        )
 
     async def run_once(self, db: AsyncSession, settings: RiskSettings, timeframe: str = "1h") -> TradingRunOut:
         balance = (await self.exchange.get_balance()).get("USDT", settings.balance)
@@ -225,9 +256,10 @@ class TradingEngine:
                                 paper_trading=self.settings.paper_trading,
                                 exploration=exploration,
                             ),
-                            photo=safe_render_position_card(position, event="OPENED", score=signal.score),
+                            photo=await self._position_card(position, event="OPENED", score=signal.score),
                             photo_filename=f"position-{position.id}-opened.jpg",
                             photo_caption="<b>Визуальная карточка входа</b>",
+                            dedupe_key=f"position:{position.id}:opened",
                         )
                     decisions.append(
                         TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="OPENED", reason=reason)
@@ -289,9 +321,10 @@ class TradingEngine:
                     if self.settings.telegram_trade_reports_enabled:
                         await self.telegram.broadcast(
                             format_protection_update(position, "BREAKEVEN"),
-                            photo=safe_render_position_card(position, event="PROTECTION"),
+                            photo=await self._position_card(position, event="PROTECTION"),
                             photo_filename=f"position-{position.id}-protection.jpg",
                             photo_caption="<b>Защита позиции обновлена</b>",
+                            dedupe_key=f"position:{position.id}:breakeven",
                         )
                 self._apply_trailing_stop(position)
                 position.pnl = await self._position_total_pnl(db, position, coin.price)
@@ -573,13 +606,14 @@ class TradingEngine:
                     exit_price=exit_order.average_price,
                     profit=partial_profit,
                 ),
-                photo=safe_render_position_card(
+                photo=await self._position_card(
                     position,
                     event="PARTIAL",
                     exit_price=exit_order.average_price,
                 ),
                 photo_filename=f"position-{position.id}-partial.jpg",
                 photo_caption="<b>Частичная фиксация прибыли</b>",
+                dedupe_key=f"position:{position.id}:partial",
             )
         return True
 
@@ -667,7 +701,7 @@ class TradingEngine:
         if self.settings.telegram_trade_reports_enabled:
             await self.telegram.broadcast(
                 format_trade_closed(position, exit_price=exit_order.average_price, reason=reason),
-                photo=safe_render_position_card(
+                photo=await self._position_card(
                     position,
                     event="CLOSED",
                     exit_price=exit_order.average_price,
@@ -675,6 +709,7 @@ class TradingEngine:
                 ),
                 photo_filename=f"position-{position.id}-closed.jpg",
                 photo_caption="<b>Финальная карточка сделки</b>",
+                dedupe_key=f"position:{position.id}:closed",
             )
 
     def _apply_trailing_stop(self, position: Position) -> None:

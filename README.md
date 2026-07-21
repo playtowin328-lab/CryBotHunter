@@ -68,6 +68,11 @@ TELEGRAM_ALLOWED_CHAT_IDS=123456789
 TELEGRAM_TRADE_REPORTS_ENABLED=true
 TELEGRAM_CYCLE_REPORTS_ENABLED=true
 TELEGRAM_CYCLE_REPORT_INTERVAL_MINUTES=15
+TELEGRAM_OUTBOX_ENABLED=true
+TELEGRAM_OUTBOX_RETRY_LIMIT=8
+WORKER_HEARTBEAT_ENABLED=true
+WORKER_HEARTBEAT_INTERVAL_SECONDS=30
+WORKER_HEARTBEAT_STALE_SECONDS=180
 TRADER_LOOP_SECONDS=60
 LLM_PROVIDER=none
 OPENAI_API_KEY=
@@ -274,13 +279,16 @@ Supported commands:
 
 - `/start`
 - `/chatid`
+- `/status`
 - `/balance`
 - `/stats`
+- `/guard`
 - `/positions`
 - `/report`
 - `/trades`
 - `/why`
 - `/learning`
+- `/reconcile`
 - `/panic`
 - `/resume`
 - `/stop`
@@ -305,6 +313,9 @@ Supported commands:
 - Switches to `Only Close`, sends a critical Telegram alert, and emergency-closes open positions when portfolio drawdown reaches the configured threshold.
 - Takes partial profit at a configured R-multiple, reduces remaining exposure, and lets the rest run with breakeven/trailing logic.
 - Sends detailed Russian Telegram reports for worker startup, every configured cycle interval, paper/live entries, risk plan, current PnL, protection changes, partial profit, closing reason, final result, learning update, and worker/exchange errors.
+- Persists Telegram notifications in a deduplicated outbox, retries transient delivery failures with exponential backoff, and resumes partially delivered text/photo reports without duplicating the successful part.
+- Adds the latest 48 real Binance 1h candles, entry, current price, stop loss, and take profit to each position card when market data is available.
+- Records worker heartbeats and sends one alert when a worker becomes stale plus a recovery notice when it resumes; `/status` shows current worker and outbox health.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
