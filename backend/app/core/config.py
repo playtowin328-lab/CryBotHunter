@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     telegram_allowed_chat_ids_raw: str = Field(default="", validation_alias="TELEGRAM_ALLOWED_CHAT_IDS")
     telegram_trade_reports_enabled: bool = True
     telegram_cycle_reports_enabled: bool = True
-    telegram_cycle_report_interval_minutes: int = 15
+    telegram_cycle_report_interval_minutes: int = 5
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None
@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     paper_exploration_enabled: bool = False
     paper_exploration_min_score: int = 65
     paper_exploration_risk_percent: float = 0.25
-    paper_exploration_max_positions: int = 2
+    paper_exploration_max_positions: int = 5
     paper_exploration_cooldown_minutes: int = 240
     strategy_optimizer_apply_enabled: bool = True
     strategy_optimizer_min_profit_factor: float = 1.05

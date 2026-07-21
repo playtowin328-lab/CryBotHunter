@@ -4,6 +4,7 @@ from app.models.entities import Position
 from app.schemas.dto import PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.telegram_reports import (
     format_cycle_report,
+    format_position_details,
     format_trade_closed,
     format_trade_opened,
     split_telegram_message,
@@ -23,7 +24,29 @@ def position() -> Position:
         initial_risk=2,
         trailing_stop_percent=0.8,
         pnl=8,
-        entry_context={"paper_exploration": True},
+        breakeven_trigger_r=1.0,
+        partial_take_profit_r=1.0,
+        partial_close_percent=50.0,
+        highest_price=105,
+        lowest_price=99,
+        status="OPEN",
+        entry_context={
+            "paper_exploration": True,
+            "notional": 200.0,
+            "planned_risk": 4.0,
+            "planned_reward": 12.0,
+            "risk_reward_ratio": 3.0,
+            "risk_percent": 0.25,
+            "stop_distance_percent": 2.0,
+            "take_distance_percent": 6.0,
+            "rating": 73,
+            "rsi": 58.4,
+            "atr_percent": 2.1,
+            "regime": "TRENDING_UP",
+            "trend_stack": "bullish",
+            "macd_direction": "positive",
+            "reasons": ["paper exploration from WAIT: bullish_votes=5, bearish_votes=2"],
+        },
         entered_at=datetime.now(timezone.utc) - timedelta(minutes=35),
         closed_at=datetime.now(timezone.utc),
     )
@@ -43,6 +66,18 @@ def test_open_report_explains_test_entry_and_risk_plan():
     assert "плановый риск" in report
     assert "строгий сигнал был WAIT" in report
     assert "Что дальше" in report
+    assert "Риск/прибыль: 1:3.00" in report
+    assert "RSI 58.4" in report
+    assert "частичная фиксация: 50%" in report
+
+
+def test_position_details_include_live_result_protection_and_entry_context():
+    report = format_position_details(position())
+
+    assert "PnL: +8.00 USDT (+4.00%" in report
+    assert "(+4.00% для позиции)" in report
+    assert "Контекст входа:" in report
+    assert "TRENDING_UP" in report
 
 
 def test_close_report_explains_outcome_and_learning():
@@ -51,6 +86,8 @@ def test_close_report_explains_outcome_and_learning():
     assert "ПОЗИЦИЯ ЗАКРЫТА" in report
     assert "достигнут тейк-профит" in report
     assert "Итог: +8.00 USDT" in report
+    assert "+2.00R" in report
+    assert "лучшее +5.00%" in report
     assert "Обучение:" in report
 
 

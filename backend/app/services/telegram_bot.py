@@ -12,7 +12,12 @@ from app.services.exchange import ExchangeClient
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.reconciliation import OrderReconciliationService
-from app.services.telegram_reports import human_reason, split_telegram_message
+from app.services.telegram_reports import (
+    format_position_details,
+    format_trade_closed,
+    human_reason,
+    split_telegram_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +104,10 @@ class TelegramCommandService:
                 f"Новые входы на паузе: {'да' if paused else 'нет'}\n"
                 f"Причина паузы: {reason or 'нет'}\n"
                 f"Открытых позиций: {int(open_positions)}\n"
-                f"Исследовательские входы: {'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}"
+                f"Исследовательские входы: {'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}\n"
+                f"Лимит тестовых позиций: {settings.paper_exploration_max_positions}\n"
+                f"Риск на тестовую позицию: до {settings.paper_exploration_risk_percent:.3f}%\n"
+                f"Периодическая подробная сводка: каждые {settings.telegram_cycle_report_interval_minutes} мин."
             )
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
@@ -132,11 +140,8 @@ class TelegramCommandService:
             ).scalars().all()
             if not positions:
                 return "Открытых позиций сейчас нет."
-            return "Открытые позиции:\n" + "\n".join(
-                f"#{item.id} {item.symbol} {item.side}\n"
-                f"  вход {item.entry_price:.4f}, сейчас {item.current_price:.4f}\n"
-                f"  SL {item.stop:.4f}, TP {item.take:.4f}, PnL {item.pnl:+.2f} USDT"
-                for item in positions
+            return "ОТКРЫТЫЕ ПОЗИЦИИ — ПОДРОБНО\n\n" + "\n\n".join(
+                format_position_details(item) for item in positions
             )
         if command == "/report":
             pnl = await PnlMetricsService().summary(db)
@@ -153,12 +158,8 @@ class TelegramCommandService:
                 f"Доля прибыльных: {pnl.win_rate:.2f}%",
             ]
             if positions:
-                lines.extend(["", "Позиции:"])
-                lines.extend(
-                    f"• #{item.id} {item.symbol} {item.side}: вход {item.entry_price:.4f}, "
-                    f"сейчас {item.current_price:.4f}, PnL {item.pnl:+.2f}, SL {item.stop:.4f}, TP {item.take:.4f}"
-                    for item in positions
-                )
+                lines.extend(["", "ПОЗИЦИИ — ПОДРОБНО:", ""])
+                lines.append("\n\n".join(format_position_details(item) for item in positions))
             return "\n".join(lines)
         if command == "/trades":
             positions = (
@@ -166,14 +167,17 @@ class TelegramCommandService:
                     select(Position)
                     .where(Position.status == "CLOSED")
                     .order_by(Position.closed_at.desc())
-                    .limit(10)
+                    .limit(5)
                 )
             ).scalars().all()
             if not positions:
                 return "Закрытых сделок пока нет."
-            return "Последние закрытые сделки:\n" + "\n".join(
-                f"• #{item.id} {item.symbol} {item.side}: вход {item.entry_price:.4f}, "
-                f"выход {item.current_price:.4f}, PnL {item.pnl:+.2f}, причина {item.exit_reason or 'не указана'}"
+            return "ПОСЛЕДНИЕ ЗАКРЫТЫЕ СДЕЛКИ — ПОДРОБНО\n\n" + "\n\n".join(
+                format_trade_closed(
+                    item,
+                    exit_price=item.current_price,
+                    reason=item.exit_reason or "MANUAL",
+                )
                 for item in positions
             )
         if command == "/why":

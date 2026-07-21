@@ -172,7 +172,7 @@ class TradingEngine:
                 direction_allowed, direction_reason, direction_multiplier = self.risk.directional_exposure(
                     side=side,
                     side_counts=side_counts,
-                    max_same_side_positions=self.settings.max_same_side_positions,
+                    max_same_side_positions=self._same_side_position_limit(exploration),
                     reduction_start=self.settings.directional_risk_reduction_start,
                     risk_multiplier=self.settings.directional_risk_multiplier,
                 )
@@ -415,6 +415,21 @@ class TradingEngine:
         entry_context = self.learning.entry_context(coin, signal, signal_reasons)
         entry_context["paper_exploration"] = paper_exploration
         entry_context["decision_reason"] = decision_reason
+        notional = entry_price * volume
+        planned_risk = initial_risk * volume
+        planned_reward = abs(take - entry_price) * volume
+        entry_context.update(
+            {
+                "balance": round(float(balance), 2),
+                "risk_percent": round(float(settings.risk_percent), 4),
+                "notional": round(notional, 2),
+                "planned_risk": round(planned_risk, 4),
+                "planned_reward": round(planned_reward, 4),
+                "risk_reward_ratio": round(planned_reward / planned_risk, 2) if planned_risk > 0 else 0.0,
+                "stop_distance_percent": round(initial_risk / entry_price * 100, 4),
+                "take_distance_percent": round(abs(take - entry_price) / entry_price * 100, 4),
+            }
+        )
         position = Position(
             symbol=coin.symbol,
             side=side,
@@ -439,6 +454,12 @@ class TradingEngine:
         await db.flush()
         db.add(Trade(position_id=position.id, symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
+
+    def _same_side_position_limit(self, paper_exploration: bool) -> int:
+        configured = max(int(self.settings.max_same_side_positions), 1)
+        if paper_exploration and self.settings.paper_trading:
+            return max(configured, max(int(self.settings.paper_exploration_max_positions), 1))
+        return configured
 
     def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
         plan = self.risk.calculate_dynamic_exits(

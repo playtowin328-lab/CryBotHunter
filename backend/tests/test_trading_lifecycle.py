@@ -300,6 +300,21 @@ def test_paper_exploration_never_overrides_hard_market_block_or_live_mode():
     assert exploration is False
 
 
+def test_paper_exploration_uses_its_own_same_side_limit_only_in_paper_mode():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_trading=True,
+        max_same_side_positions=2,
+        paper_exploration_max_positions=5,
+    )
+
+    assert engine._same_side_position_limit(paper_exploration=True) == 5
+    assert engine._same_side_position_limit(paper_exploration=False) == 2
+
+    engine.settings.paper_trading = False
+    assert engine._same_side_position_limit(paper_exploration=True) == 2
+
+
 @pytest.mark.asyncio
 async def test_drawdown_limit_activates_only_close_and_critical_notification():
     class Result:

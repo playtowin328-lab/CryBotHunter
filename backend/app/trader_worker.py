@@ -44,6 +44,9 @@ async def main() -> None:
                 paper_trading=settings.paper_trading,
                 loop_seconds=settings.trader_loop_seconds,
                 exploration_enabled=settings.paper_exploration_enabled,
+                exploration_max_positions=settings.paper_exploration_max_positions,
+                exploration_risk_percent=settings.paper_exploration_risk_percent,
+                report_interval_minutes=settings.telegram_cycle_report_interval_minutes,
             )
         )
     while not shutdown.requested:
