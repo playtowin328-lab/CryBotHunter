@@ -1,13 +1,12 @@
 import asyncio
-import logging
 
 from app.db.session import AsyncSessionLocal
+from app.safety_manager import configure_stdout_logging
 from app.services.telegram_bot import TelegramPollingBot
-
-logging.basicConfig(level=logging.INFO)
 
 
 async def main() -> None:
+    configure_stdout_logging()
     await TelegramPollingBot().run(AsyncSessionLocal)
 
 

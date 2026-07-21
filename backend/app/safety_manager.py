@@ -310,6 +310,11 @@ def configure_stdout_logging() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         stream=sys.stdout,
     )
+    # httpx includes the complete request URL in INFO records. Telegram puts the
+    # bot token in that URL, so keep transport-level records out of production
+    # logs while preserving our own success/failure messages.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _env_text(name: str, default: str) -> str:

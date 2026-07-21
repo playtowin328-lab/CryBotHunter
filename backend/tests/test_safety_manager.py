@@ -1,11 +1,12 @@
 import ast
+import logging
 from pathlib import Path
 
 import ccxt
 import pytest
 
 from app.core.config import Settings
-from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController
+from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController, configure_stdout_logging
 
 
 SAFETY_ENVIRONMENT = (
@@ -58,6 +59,13 @@ class FakeExchange:
 def clear_safety_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in SAFETY_ENVIRONMENT:
         monkeypatch.delenv(name, raising=False)
+
+
+def test_stdout_logging_suppresses_http_client_urls() -> None:
+    configure_stdout_logging()
+
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
 
 
 @pytest.mark.asyncio
