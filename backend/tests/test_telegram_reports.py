@@ -63,20 +63,23 @@ def test_open_report_explains_test_entry_and_risk_plan():
 
     assert "ОТКРЫТА ТЕСТОВАЯ ПОЗИЦИЯ" in report
     assert "BTC/USDT" in report
-    assert "плановый риск" in report
+    assert "<b>Риск-план</b>" in report
+    assert "риск ≈ 4.00 USDT" in report
     assert "строгий сигнал был WAIT" in report
-    assert "Что дальше" in report
-    assert "Риск/прибыль: 1:3.00" in report
+    assert "Дальше бот отслеживает" in report
+    assert "Risk/Reward: <code>1:3.00</code>" in report
     assert "RSI 58.4" in report
-    assert "частичная фиксация: 50%" in report
+    assert "частичная фиксация 50%" in report
+    assert report.count("<b>") == report.count("</b>")
+    assert report.count("<code>") == report.count("</code>")
 
 
 def test_position_details_include_live_result_protection_and_entry_context():
     report = format_position_details(position())
 
-    assert "PnL: +8.00 USDT (+4.00%" in report
-    assert "(+4.00% для позиции)" in report
-    assert "Контекст входа:" in report
+    assert "PnL: +8.00 USDT · +4.00%" in report
+    assert "100.0000 → 104.0000" in report
+    assert "<b>Контекст входа</b>" in report
     assert "TRENDING_UP" in report
 
 
@@ -85,10 +88,10 @@ def test_close_report_explains_outcome_and_learning():
 
     assert "ПОЗИЦИЯ ЗАКРЫТА" in report
     assert "достигнут тейк-профит" in report
-    assert "Итог: +8.00 USDT" in report
+    assert "ИТОГ: +8.00 USDT" in report
     assert "+2.00R" in report
-    assert "лучшее +5.00%" in report
-    assert "Обучение:" in report
+    assert "Лучшее движение: <code>+5.00%</code>" in report
+    assert "Результат записан в память сделок" in report
 
 
 def test_cycle_report_contains_every_decision_and_position_update():
@@ -126,7 +129,7 @@ def test_cycle_report_contains_every_decision_and_position_update():
     assert "BTC/USDT" in report
     assert "ETH/USDT" in report
     assert "строгий торговый сигнал ещё не сформирован" in report
-    assert "PnL +8.00 USDT" in report
+    assert "PnL <b>+8.00 USDT</b>" in report
 
 
 def test_long_telegram_report_is_split_without_data_loss():

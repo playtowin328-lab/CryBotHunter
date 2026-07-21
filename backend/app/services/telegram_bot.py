@@ -1,4 +1,5 @@
 import asyncio
+from html import escape
 import logging
 
 import httpx
@@ -31,29 +32,72 @@ class TelegramNotifier:
     def enabled(self) -> bool:
         return bool(self.settings.telegram_bot_token)
 
-    async def send_message(self, chat_id: int, text: str) -> bool:
+    async def send_message(self, chat_id: int, text: str, *, parse_mode: str | None = None) -> bool:
         if not self.enabled:
             return False
         chunks = split_telegram_message(text)
         if not chunks:
             return False
-        results = [await self._send_message_chunk(chat_id, chunk) for chunk in chunks]
+        results = [await self._send_message_chunk(chat_id, chunk, parse_mode=parse_mode) for chunk in chunks]
         return all(results)
 
-    async def _send_message_chunk(self, chat_id: int, text: str) -> bool:
+    async def _send_message_chunk(self, chat_id: int, text: str, *, parse_mode: str | None = None) -> bool:
         try:
+            payload: dict[str, str | int] = {"chat_id": chat_id, "text": text}
+            if parse_mode:
+                payload["parse_mode"] = parse_mode
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.post(f"{self.base_url}/sendMessage", json={"chat_id": chat_id, "text": text})
+                response = await client.post(f"{self.base_url}/sendMessage", json=payload)
                 response.raise_for_status()
                 return True
         except httpx.HTTPError as exc:
             logger.warning("Telegram sendMessage failed for chat_id=%s error=%s", chat_id, type(exc).__name__)
             return False
 
-    async def broadcast(self, text: str) -> int:
+    async def send_photo(
+        self,
+        chat_id: int,
+        photo: bytes,
+        *,
+        filename: str = "trade-card.jpg",
+        caption: str | None = None,
+    ) -> bool:
+        if not self.enabled or not photo:
+            return False
+        try:
+            data: dict[str, str] = {"chat_id": str(chat_id)}
+            if caption:
+                data.update({"caption": caption[:1024], "parse_mode": "HTML"})
+            files = {"photo": (filename, photo, "image/jpeg")}
+            async with httpx.AsyncClient(timeout=25) as client:
+                response = await client.post(f"{self.base_url}/sendPhoto", data=data, files=files)
+                response.raise_for_status()
+                return True
+        except httpx.HTTPError as exc:
+            logger.warning("Telegram sendPhoto failed for chat_id=%s error=%s", chat_id, type(exc).__name__)
+            return False
+
+    async def broadcast(
+        self,
+        text: str,
+        *,
+        photo: bytes | None = None,
+        photo_filename: str = "trade-card.jpg",
+        photo_caption: str | None = None,
+        parse_mode: str | None = "HTML",
+    ) -> int:
         delivered = 0
         for chat_id in self.settings.telegram_allowed_chat_ids:
-            delivered += int(await self.send_message(chat_id, text))
+            text_delivered = await self.send_message(chat_id, text, parse_mode=parse_mode)
+            photo_delivered = True
+            if photo:
+                photo_delivered = await self.send_photo(
+                    chat_id,
+                    photo,
+                    filename=photo_filename,
+                    caption=photo_caption,
+                )
+            delivered += int(text_delivered and photo_delivered)
         return delivered
 
 
@@ -99,15 +143,16 @@ class TelegramCommandService:
             ).scalar_one()
             mode = "PAPER — виртуальные деньги" if settings.paper_trading else "LIVE — реальные ордера"
             return (
-                "Статус: онлайн\n"
-                f"Режим: {mode}\n"
-                f"Новые входы на паузе: {'да' if paused else 'нет'}\n"
-                f"Причина паузы: {reason or 'нет'}\n"
-                f"Открытых позиций: {int(open_positions)}\n"
-                f"Исследовательские входы: {'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}\n"
-                f"Лимит тестовых позиций: {settings.paper_exploration_max_positions}\n"
-                f"Риск на тестовую позицию: до {settings.paper_exploration_risk_percent:.3f}%\n"
-                f"Периодическая подробная сводка: каждые {settings.telegram_cycle_report_interval_minutes} мин."
+                "<b>🟢 CRYBOTHUNTER · ONLINE</b>\n"
+                f"<code>{mode}</code>\n\n"
+                "<b>Торговля</b>\n"
+                f"├ Новые входы: <code>{'пауза' if paused else 'разрешены'}</code>\n"
+                f"├ Причина паузы: {escape(str(reason or 'нет'), quote=False)}\n"
+                f"├ Открытых позиций: <code>{int(open_positions)}</code>\n"
+                f"├ Тестовые входы: <code>{'включены' if settings.paper_trading and settings.paper_exploration_enabled else 'выключены'}</code>\n"
+                f"├ Лимит позиций: <code>{settings.paper_exploration_max_positions}</code>\n"
+                f"├ Риск на позицию: <code>до {settings.paper_exploration_risk_percent:.3f}%</code>\n"
+                f"└ Полная сводка: <code>{settings.telegram_cycle_report_interval_minutes} мин.</code>"
             )
         if command == "/balance":
             balance = await ExchangeClient().get_balance()
@@ -140,7 +185,7 @@ class TelegramCommandService:
             ).scalars().all()
             if not positions:
                 return "Открытых позиций сейчас нет."
-            return "ОТКРЫТЫЕ ПОЗИЦИИ — ПОДРОБНО\n\n" + "\n\n".join(
+            return "<b>📌 ОТКРЫТЫЕ ПОЗИЦИИ</b>\n\n" + "\n\n────────────\n\n".join(
                 format_position_details(item) for item in positions
             )
         if command == "/report":
@@ -149,17 +194,19 @@ class TelegramCommandService:
                 await db.execute(select(Position).where(Position.status == "OPEN").order_by(Position.entered_at.desc()))
             ).scalars().all()
             lines = [
-                "📊 ПОЛНЫЙ ТОРГОВЫЙ ОТЧЁТ",
-                f"Открытых позиций: {len(positions)}",
-                f"Открытый PnL: {pnl.open_pnl:+.2f} USDT",
-                f"PnL за день: {pnl.pnl_day:+.2f} USDT",
-                f"Общий PnL: {pnl.total_pnl:+.2f} USDT",
-                f"Закрытых сделок: {pnl.trades_count}",
-                f"Доля прибыльных: {pnl.win_rate:.2f}%",
+                "<b>📊 ПОЛНЫЙ ТОРГОВЫЙ ОТЧЁТ</b>",
+                "",
+                "<b>Портфель</b>",
+                f"├ Открытых позиций: <code>{len(positions)}</code>",
+                f"├ Открытый PnL: <b>{pnl.open_pnl:+.2f} USDT</b>",
+                f"├ PnL за день: <code>{pnl.pnl_day:+.2f} USDT</code>",
+                f"├ Общий PnL: <code>{pnl.total_pnl:+.2f} USDT</code>",
+                f"├ Закрытых сделок: <code>{pnl.trades_count}</code>",
+                f"└ Доля прибыльных: <code>{pnl.win_rate:.2f}%</code>",
             ]
             if positions:
-                lines.extend(["", "ПОЗИЦИИ — ПОДРОБНО:", ""])
-                lines.append("\n\n".join(format_position_details(item) for item in positions))
+                lines.extend(["", "<b>Позиции — подробно</b>", ""])
+                lines.append("\n\n────────────\n\n".join(format_position_details(item) for item in positions))
             return "\n".join(lines)
         if command == "/trades":
             positions = (
@@ -172,7 +219,7 @@ class TelegramCommandService:
             ).scalars().all()
             if not positions:
                 return "Закрытых сделок пока нет."
-            return "ПОСЛЕДНИЕ ЗАКРЫТЫЕ СДЕЛКИ — ПОДРОБНО\n\n" + "\n\n".join(
+            return "<b>🧾 ПОСЛЕДНИЕ ЗАКРЫТЫЕ СДЕЛКИ</b>\n\n" + "\n\n────────────\n\n".join(
                 format_trade_closed(
                     item,
                     exit_price=item.current_price,
@@ -274,4 +321,5 @@ class TelegramPollingBot:
 
         async with session_factory() as db:
             reply = await self.commands.handle(text, db)
-        await self.notifier.send_message(chat_id, reply)
+        parse_mode = "HTML" if "<b>" in reply or "<code>" in reply else None
+        await self.notifier.send_message(chat_id, reply, parse_mode=parse_mode)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from html import escape
 from typing import Iterable
 
 from app.models.entities import Position
@@ -36,15 +37,18 @@ def format_worker_started(
     exploration_risk_percent: float,
     report_interval_minutes: int,
 ) -> str:
+    mode = "PAPER · виртуальные средства" if paper_trading else "LIVE · реальные ордера"
+    exploration = "включены" if paper_trading and exploration_enabled else "выключены"
     return (
-        "🟢 Торговый сервис запущен\n"
-        f"Режим: {'PAPER — виртуальные деньги' if paper_trading else 'LIVE — реальные ордера'}\n"
-        f"Проверка рынка: каждые {loop_seconds} сек.\n"
-        f"Исследовательские входы: {'включены' if paper_trading and exploration_enabled else 'выключены'}\n"
-        f"Максимум тестовых позиций: {exploration_max_positions}\n"
-        f"Риск одной тестовой позиции: до {exploration_risk_percent:.3f}% виртуального баланса\n"
-        f"Полная периодическая сводка: каждые {report_interval_minutes} мин.\n"
-        "Бот будет сообщать о входах, сопровождении, закрытиях, прибыли/убытке и причинах отказа."
+        "<b>🟢 CRYBOTHUNTER · СЕРВИС ЗАПУЩЕН</b>\n"
+        f"<code>{mode}</code>\n\n"
+        "<b>Рабочий режим</b>\n"
+        f"├ Проверка рынка: <code>{loop_seconds} сек.</code>\n"
+        f"├ Тестовые входы: <code>{exploration}</code>\n"
+        f"├ Лимит позиций: <code>{exploration_max_positions}</code>\n"
+        f"├ Риск на позицию: <code>до {exploration_risk_percent:.3f}%</code>\n"
+        f"└ Полная сводка: <code>каждые {report_interval_minutes} мин.</code>\n\n"
+        "<i>Входы, сопровождение, SL/TP, результат и причины решений будут приходить отдельными понятными блоками.</i>"
     )
 
 
@@ -80,27 +84,29 @@ def format_trade_opened(
         if exploration
         else "основная стратегия и все защитные проверки разрешили вход"
     )
+    heading = "🧪 ОТКРЫТА ТЕСТОВАЯ ПОЗИЦИЯ" if paper_trading else "🚀 ОТКРЫТА РЕАЛЬНАЯ ПОЗИЦИЯ"
     return (
-        "🧪 ОТКРЫТА ТЕСТОВАЯ ПОЗИЦИЯ\n" if paper_trading else "🚀 ОТКРЫТА РЕАЛЬНАЯ ПОЗИЦИЯ\n"
-    ) + (
-        f"ID: #{position.id}\n"
-        f"Инструмент: {position.symbol}\n"
-        f"Направление: {_side_label(position.side)}\n"
-        f"Вход: {_price(position.entry_price)}\n"
-        f"Время входа: {_format_datetime(position.entered_at)}\n"
-        f"Объём: {float(position.volume):.8f} ({notional:.2f} USDT)\n"
-        f"Стоп-лосс: {_price(position.stop)} — {stop_distance:.2f}% от входа, плановый риск ≈ {risk_amount:.2f} USDT\n"
-        f"Тейк-профит: {_price(position.take)} — {take_distance:.2f}% от входа, цель ≈ {reward_amount:.2f} USDT\n"
-        f"Риск/прибыль: 1:{risk_reward:.2f}; риск от баланса: {float(context.get('risk_percent') or 0):.3f}%\n"
-        f"Трейлинг-стоп: {float(position.trailing_stop_percent):.2f}%\n"
-        f"Безубыток: после {float(position.breakeven_trigger_r or 1.0):.2f}R; частичная фиксация: "
-        f"{float(position.partial_close_percent or 50.0):.0f}% позиции при {float(position.partial_take_profit_r or 1.0):.2f}R\n"
-        f"Оценка сигнала: {score}/100\n"
-        f"Почему вошёл: {source}.\n"
-        f"Решение проверок: {human_reason(reason)}.\n"
-        f"Рынок при входе: {_entry_context_summary(context)}\n"
-        f"Факторы сигнала: {_entry_reason_summary(context)}\n"
-        "Что дальше: цена и PnL отслеживаются автоматически; бот сообщит о переносе защиты, частичной фиксации и закрытии."
+        f"<b>{heading}</b>\n"
+        f"<code>{_html(position.symbol)} · {_html(_side_label(position.side))} · #{position.id}</code>\n\n"
+        "<b>Исполнение</b>\n"
+        f"├ Вход: <code>{_price(position.entry_price)}</code>\n"
+        f"├ Время: <code>{_format_datetime(position.entered_at)}</code>\n"
+        f"├ Объём: <code>{float(position.volume):.8f}</code>\n"
+        f"└ Сумма: <code>{notional:.2f} USDT</code>\n\n"
+        "<b>Риск-план</b>\n"
+        f"├ SL: <code>{_price(position.stop)}</code> · {stop_distance:.2f}% · риск ≈ {risk_amount:.2f} USDT\n"
+        f"├ TP: <code>{_price(position.take)}</code> · {take_distance:.2f}% · цель ≈ {reward_amount:.2f} USDT\n"
+        f"├ Risk/Reward: <code>1:{risk_reward:.2f}</code> · риск баланса {float(context.get('risk_percent') or 0):.3f}%\n"
+        f"├ Трейлинг: <code>{float(position.trailing_stop_percent):.2f}%</code>\n"
+        f"└ Безубыток: {float(position.breakeven_trigger_r or 1.0):.2f}R · частичная фиксация "
+        f"{float(position.partial_close_percent or 50.0):.0f}% при {float(position.partial_take_profit_r or 1.0):.2f}R\n\n"
+        "<b>Почему открыт вход</b>\n"
+        f"├ Сила сигнала: <code>{score}/100</code>\n"
+        f"├ Источник: {_html(source)}\n"
+        f"├ Проверки: {_html(human_reason(reason))}\n"
+        f"├ Рынок: {_html(_entry_context_summary(context))}\n"
+        f"└ Факторы: {_html(_entry_reason_summary(context))}\n\n"
+        "<i>Дальше бот отслеживает цену, PnL, перенос защиты, частичную фиксацию и закрытие.</i>"
     )
 
 
@@ -119,30 +125,33 @@ def format_position_details(position: Position) -> str:
         protection.append("часть прибыли уже зафиксирована")
     if not protection:
         protection.append("исходный защитный план активен")
+    pnl_icon = "🟢" if pnl >= 0 else "🔴"
     return (
-        f"#{position.id} {position.symbol} — {_side_label(position.side)}\n"
-        f"Статус: {position.status}; в позиции {_duration(position.entered_at, position.closed_at)}\n"
-        f"Вход {_price(position.entry_price)} → сейчас {_price(position.current_price)} "
-        f"({movement:+.2f}% для позиции)\n"
-        f"Объём: {float(position.volume):.8f}; стоимость при входе: {notional:.2f} USDT\n"
-        f"PnL: {pnl:+.2f} USDT ({pnl_percent:+.2f}% от стоимости позиции)\n"
-        f"SL {_price(position.stop)} ({stop_distance:.2f}% от текущей цены); "
-        f"TP {_price(position.take)} ({take_distance:.2f}%)\n"
-        f"Защита: {', '.join(protection)}; трейлинг {float(position.trailing_stop_percent):.2f}%\n"
-        f"Контекст входа: {_entry_context_summary(context)}\n"
-        f"Причины входа: {_entry_reason_summary(context)}"
+        f"<b>{pnl_icon} {_html(position.symbol)} · {_html(_side_label(position.side))}</b>  <code>#{position.id}</code>\n"
+        f"<b>PnL: {pnl:+.2f} USDT · {pnl_percent:+.2f}%</b>\n\n"
+        "<b>Позиция</b>\n"
+        f"├ Статус: <code>{_html(position.status)}</code> · {_duration(position.entered_at, position.closed_at)}\n"
+        f"├ Цена: <code>{_price(position.entry_price)} → {_price(position.current_price)}</code> · {movement:+.2f}%\n"
+        f"├ Объём: <code>{float(position.volume):.8f}</code> · {notional:.2f} USDT\n"
+        f"├ SL: <code>{_price(position.stop)}</code> · расстояние {stop_distance:.2f}%\n"
+        f"└ TP: <code>{_price(position.take)}</code> · расстояние {take_distance:.2f}%\n\n"
+        "<b>Контроль риска</b>\n"
+        f"├ Защита: {_html(', '.join(protection))}\n"
+        f"└ Трейлинг: <code>{float(position.trailing_stop_percent):.2f}%</code>\n\n"
+        f"<b>Контекст входа</b>\n{_html(_entry_context_summary(context))}\n"
+        f"<b>Причины входа</b>\n{_html(_entry_reason_summary(context))}"
     )
 
 
 def format_protection_update(position: Position, event: str) -> str:
     label = "стоп перенесён в безубыток" if event == "BREAKEVEN" else event
     return (
-        "🛡 ОБНОВЛЕНА ЗАЩИТА ПОЗИЦИИ\n"
-        f"#{position.id} {position.symbol} {_side_label(position.side)}\n"
-        f"Событие: {label}\n"
-        f"Текущая цена: {_price(position.current_price)}\n"
-        f"Новый стоп: {_price(position.stop)}\n"
-        f"Текущий PnL: {float(position.pnl):+.2f} USDT"
+        "<b>🛡 ЗАЩИТА ПОЗИЦИИ ОБНОВЛЕНА</b>\n"
+        f"<code>{_html(position.symbol)} · {_html(_side_label(position.side))} · #{position.id}</code>\n\n"
+        f"├ Событие: <b>{_html(label)}</b>\n"
+        f"├ Текущая цена: <code>{_price(position.current_price)}</code>\n"
+        f"├ Новый SL: <code>{_price(position.stop)}</code>\n"
+        f"└ PnL: <b>{float(position.pnl):+.2f} USDT</b>"
     )
 
 
@@ -154,13 +163,14 @@ def format_partial_take_profit(
     profit: float,
 ) -> str:
     return (
-        "💰 ЧАСТЬ ПРИБЫЛИ ЗАФИКСИРОВАНА\n"
-        f"#{position.id} {position.symbol} {_side_label(position.side)}\n"
-        f"Закрытый объём: {closed_volume:.8f}\n"
-        f"Цена фиксации: {_price(exit_price)}\n"
-        f"Результат части: {profit:+.2f} USDT\n"
-        f"Осталось в позиции: {float(position.volume):.8f}\n"
-        f"Общий текущий PnL: {float(position.pnl):+.2f} USDT"
+        "<b>💰 ЧАСТЬ ПРИБЫЛИ ЗАФИКСИРОВАНА</b>\n"
+        f"<code>{_html(position.symbol)} · {_html(_side_label(position.side))} · #{position.id}</code>\n\n"
+        "<b>Исполнение</b>\n"
+        f"├ Закрытый объём: <code>{closed_volume:.8f}</code>\n"
+        f"├ Цена фиксации: <code>{_price(exit_price)}</code>\n"
+        f"├ Результат части: <b>{profit:+.2f} USDT</b>\n"
+        f"├ Остаток: <code>{float(position.volume):.8f}</code>\n"
+        f"└ Общий PnL: <b>{float(position.pnl):+.2f} USDT</b>"
     )
 
 
@@ -196,23 +206,26 @@ def format_trade_closed(position: Position, *, exit_price: float, reason: str) -
         if exploration or context
         else "Результат сохранён в истории сделок."
     )
+    heading = "✅ ПОЗИЦИЯ ЗАКРЫТА" if pnl >= 0 else "🔴 ПОЗИЦИЯ ЗАКРЫТА С УБЫТКОМ"
     return (
-        "✅ ПОЗИЦИЯ ЗАКРЫТА\n" if pnl >= 0 else "🔴 ПОЗИЦИЯ ЗАКРЫТА С УБЫТКОМ\n"
-    ) + (
-        f"ID: #{position.id}\n"
-        f"Инструмент: {position.symbol}\n"
-        f"Направление: {_side_label(position.side)}\n"
-        f"Объём: {float(position.volume):.8f}; стоимость при входе: {notional:.2f} USDT\n"
-        f"Вход: {_price(position.entry_price)}\n"
-        f"Выход: {_price(exit_price)}\n"
-        f"Причина: {EXIT_REASON_LABELS.get(reason, reason)}\n"
-        f"Время в позиции: {duration}\n"
-        f"Итог: {pnl:+.2f} USDT, {pnl_percent:+.2f}% стоимости, {result_r:+.2f}R ({result})\n"
-        f"Движение для позиции: итог {effective_move:+.2f}%, лучшее {best_move:+.2f}%, худшее {worst_move:+.2f}%\n"
-        f"Что произошло: {_close_explanation(position.side, exit_price, position.entry_price, reason)}\n"
-        f"Условия входа: {_entry_context_summary(context)}\n"
-        f"Первоначальные факторы: {_entry_reason_summary(context)}\n"
-        f"Обучение: {learning}"
+        f"<b>{heading}</b>\n"
+        f"<code>{_html(position.symbol)} · {_html(_side_label(position.side))} · #{position.id}</code>\n\n"
+        f"<b>ИТОГ: {pnl:+.2f} USDT · {pnl_percent:+.2f}% · {result_r:+.2f}R</b>\n"
+        f"<i>{result}</i>\n\n"
+        "<b>Исполнение</b>\n"
+        f"├ Вход: <code>{_price(position.entry_price)}</code>\n"
+        f"├ Выход: <code>{_price(exit_price)}</code>\n"
+        f"├ Объём: <code>{float(position.volume):.8f}</code> · {notional:.2f} USDT\n"
+        f"├ Время в позиции: <code>{duration}</code>\n"
+        f"└ Причина: {_html(EXIT_REASON_LABELS.get(reason, reason))}\n\n"
+        "<b>Как прошла сделка</b>\n"
+        f"├ Итоговое движение: <code>{effective_move:+.2f}%</code>\n"
+        f"├ Лучшее движение: <code>{best_move:+.2f}%</code>\n"
+        f"├ Худшее движение: <code>{worst_move:+.2f}%</code>\n"
+        f"└ {_html(_close_explanation(position.side, exit_price, position.entry_price, reason))}\n\n"
+        f"<b>Условия входа</b>\n{_html(_entry_context_summary(context))}\n"
+        f"<b>Первоначальные факторы</b>\n{_html(_entry_reason_summary(context))}\n\n"
+        f"<i>{_html(learning)}</i>"
     )
 
 
@@ -223,32 +236,34 @@ def format_cycle_report(
     paper_trading: bool,
 ) -> str:
     lines = [
-        "📊 ОТЧЁТ ТОРГОВОГО ЦИКЛА",
-        f"Режим: {'PAPER' if paper_trading else 'LIVE'}",
-        f"Проверено инструментов: {run.scanned}",
-        f"Открыто позиций: {run.opened}",
-        f"Пропущено: {run.skipped}",
-        f"Проверено открытых позиций: {tick.checked}",
-        f"Закрыто позиций: {tick.closed}",
-        f"Обновлений памяти по сделкам: {tick.closed}",
+        f"<b>📊 ТОРГОВАЯ СВОДКА · {'PAPER' if paper_trading else 'LIVE'}</b>",
+        "<code>последний завершённый цикл</code>",
+        "",
+        "<b>Результат цикла</b>",
+        f"├ Рынков проверено: <code>{run.scanned}</code>",
+        f"├ Новых входов: <code>{run.opened}</code>",
+        f"├ Пропущено: <code>{run.skipped}</code>",
+        f"├ Позиций проверено: <code>{tick.checked}</code>",
+        f"├ Закрыто: <code>{tick.closed}</code>",
+        f"└ Обучающих событий: <code>{tick.closed}</code>",
     ]
     if run.decisions:
-        lines.extend(["", "Решения:"])
+        lines.extend(["", "<b>Решения по рынку</b>"])
         lines.extend(_decision_lines(run.decisions))
     if tick.updated:
-        lines.extend(["", "Открытые позиции и изменения:"])
+        lines.extend(["", "<b>Открытые позиции</b>"])
         lines.extend(_position_update_lines(tick.updated))
     if run.opened == 0 and tick.closed == 0:
-        lines.extend(["", "Итог: бот работает, но в этом цикле новый вход не прошёл условия."])
+        lines.extend(["", "<i>Бот работает штатно. В этом цикле новые входы не прошли условия риска или сигнала.</i>"])
     return "\n".join(lines)
 
 
 def format_worker_error(title: str, detail: str) -> str:
     return (
-        "⚠️ ОШИБКА ТОРГОВОГО СЕРВИСА\n"
-        f"Событие: {title}\n"
-        f"Подробности: {detail[:1200]}\n"
-        "Новые входы не выполняются, пока цикл не восстановится; открытые позиции будут проверены повторно."
+        "<b>⚠️ ОШИБКА ТОРГОВОГО СЕРВИСА</b>\n\n"
+        f"<b>Событие</b>\n{_html(title)}\n\n"
+        f"<b>Технические подробности</b>\n<code>{_html(detail[:1200])}</code>\n\n"
+        "<i>Новые входы временно не выполняются. Открытые позиции будут проверены повторно после восстановления цикла.</i>"
     )
 
 
@@ -294,13 +309,14 @@ def _decision_lines(decisions: Iterable[TradingDecision]) -> list[str]:
     lines: list[str] = []
     for decision in decisions:
         action = "ОТКРЫТА" if decision.action == "OPENED" else "ПРОПУЩЕНА"
+        icon = "🟢" if decision.action == "OPENED" else "⏸"
         signal = {"BUY": "ПОКУПКА", "SELL": "ПРОДАЖА", "WAIT": "ОЖИДАНИЕ"}.get(
             decision.signal,
             decision.signal,
         )
         lines.append(
-            f"• {decision.symbol}: {signal} → {action}, оценка {decision.score}/100\n"
-            f"  Причина: {human_reason(decision.reason)}"
+            f"{icon} <b>{_html(decision.symbol)}</b> · {_html(signal)} · <code>{decision.score}/100</code>\n"
+            f"   {_html(action.capitalize())}: {_html(human_reason(decision.reason))}"
         )
     return lines
 
@@ -312,18 +328,23 @@ def _position_update_lines(updates: Iterable[PositionUpdateOut]) -> list[str]:
         movement = _effective_percent(item.side, item.current_price, item.entry_price or item.previous_price)
         notional = float(item.entry_price or item.current_price) * float(item.volume)
         pnl_percent = float(item.pnl) / notional * 100 if notional > 0 else 0.0
+        icon = "🟢" if float(item.pnl) >= 0 else "🔴"
         lines.append(
-            f"• #{item.id} {item.symbol} {_side_label(item.side)}: {status}, "
-            f"цена {_price(item.current_price)}, результат {movement:+.2f}%, "
-            f"PnL {item.pnl:+.2f} USDT ({pnl_percent:+.2f}%), объём {item.volume:.8f}, "
-            f"SL {_price(item.stop)} ({_percent_distance(item.current_price, item.stop):.2f}%), "
-            f"TP {_price(item.take)} ({_percent_distance(item.current_price, item.take):.2f}%)"
+            f"{icon} <b>{_html(item.symbol)}</b> · {_html(_side_label(item.side))} · <code>#{item.id}</code>\n"
+            f"   {status} · PnL <b>{item.pnl:+.2f} USDT</b> ({pnl_percent:+.2f}%) · движение {movement:+.2f}%\n"
+            f"   Цена <code>{_price(item.current_price)}</code> · SL {_price(item.stop)} "
+            f"({_percent_distance(item.current_price, item.stop):.2f}%) · TP {_price(item.take)} "
+            f"({_percent_distance(item.current_price, item.take):.2f}%)"
         )
     return lines
 
 
 def _side_label(side: str) -> str:
     return "LONG / покупка" if side.upper() == "LONG" else "SHORT / продажа"
+
+
+def _html(value: object) -> str:
+    return escape(str(value), quote=False)
 
 
 def _price(value: float) -> str:

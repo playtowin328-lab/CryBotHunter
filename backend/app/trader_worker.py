@@ -16,6 +16,7 @@ from app.services.locks import RedisLockManager
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
 from app.services.telegram_bot import TelegramNotifier
+from app.services.telegram_cards import safe_render_cycle_card
 from app.services.telegram_reports import format_cycle_report, format_worker_error, format_worker_started
 from app.services.trading_engine import TradingEngine
 
@@ -106,7 +107,14 @@ async def main() -> None:
                                             run,
                                             tick,
                                             paper_trading=settings.paper_trading,
-                                        )
+                                        ),
+                                        photo=safe_render_cycle_card(
+                                            run,
+                                            tick,
+                                            paper_trading=settings.paper_trading,
+                                        ),
+                                        photo_filename="trading-cycle.jpg",
+                                        photo_caption="<b>Визуальная сводка торгового цикла</b>",
                                     )
                                     last_cycle_report_at = datetime.now(timezone.utc)
         except ccxt.BaseError as exc:

@@ -31,6 +31,7 @@ from app.services.telegram_reports import (
     format_trade_closed,
     format_trade_opened,
 )
+from app.services.telegram_cards import safe_render_position_card
 
 
 class TradingEngine:
@@ -223,7 +224,10 @@ class TradingEngine:
                                 reason=reason,
                                 paper_trading=self.settings.paper_trading,
                                 exploration=exploration,
-                            )
+                            ),
+                            photo=safe_render_position_card(position, event="OPENED", score=signal.score),
+                            photo_filename=f"position-{position.id}-opened.jpg",
+                            photo_caption="<b>Визуальная карточка входа</b>",
                         )
                     decisions.append(
                         TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="OPENED", reason=reason)
@@ -283,7 +287,12 @@ class TradingEngine:
                 if self._apply_breakeven(position):
                     db.add(LogEntry(level="INFO", message=f"Moved {position.symbol} #{position.id} stop to breakeven: stop={position.stop:.4f}"))
                     if self.settings.telegram_trade_reports_enabled:
-                        await self.telegram.broadcast(format_protection_update(position, "BREAKEVEN"))
+                        await self.telegram.broadcast(
+                            format_protection_update(position, "BREAKEVEN"),
+                            photo=safe_render_position_card(position, event="PROTECTION"),
+                            photo_filename=f"position-{position.id}-protection.jpg",
+                            photo_caption="<b>Защита позиции обновлена</b>",
+                        )
                 self._apply_trailing_stop(position)
                 position.pnl = await self._position_total_pnl(db, position, coin.price)
                 exit_reason = self._exit_reason(position)
@@ -563,7 +572,14 @@ class TradingEngine:
                     closed_volume=close_volume,
                     exit_price=exit_order.average_price,
                     profit=partial_profit,
-                )
+                ),
+                photo=safe_render_position_card(
+                    position,
+                    event="PARTIAL",
+                    exit_price=exit_order.average_price,
+                ),
+                photo_filename=f"position-{position.id}-partial.jpg",
+                photo_caption="<b>Частичная фиксация прибыли</b>",
             )
         return True
 
@@ -650,7 +666,15 @@ class TradingEngine:
         db.add(LogEntry(level="INFO", message=f"Learning updated from {position.symbol} #{position.id}: reason={reason}, pnl={position.pnl:.2f}"))
         if self.settings.telegram_trade_reports_enabled:
             await self.telegram.broadcast(
-                format_trade_closed(position, exit_price=exit_order.average_price, reason=reason)
+                format_trade_closed(position, exit_price=exit_order.average_price, reason=reason),
+                photo=safe_render_position_card(
+                    position,
+                    event="CLOSED",
+                    exit_price=exit_order.average_price,
+                    exit_reason=reason,
+                ),
+                photo_filename=f"position-{position.id}-closed.jpg",
+                photo_caption="<b>Финальная карточка сделки</b>",
             )
 
     def _apply_trailing_stop(self, position: Position) -> None:
