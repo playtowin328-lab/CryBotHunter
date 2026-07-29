@@ -136,6 +136,9 @@ export type PerformanceGuard = {
   win_rate: number;
   loss_streak: number;
   total_profit: number;
+  recovery_mode: boolean;
+  risk_multiplier: number;
+  retry_at: string | null;
 };
 
 export type BacktestReport = {
