@@ -4,11 +4,12 @@ import logging
 from time import perf_counter
 
 from app.core.config import get_settings
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, engine
 from app.models.entities import LogEntry
 from app.safety_manager import SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
+from app.services.schema_readiness import wait_for_required_tables
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,16 @@ async def main() -> None:
         settings.rl_training_max_per_cycle,
     )
     await heartbeat.start()
+    schema_ready = await wait_for_required_tables(
+        engine,
+        ("trade_post_mortems", "shadow_trades"),
+        heartbeat=heartbeat,
+        shutdown=shutdown,
+    )
+    if not schema_ready:
+        await heartbeat.stop()
+        logger.info("RL worker stopped while waiting for database migration")
+        return
     while not shutdown.requested:
         cycle_started = perf_counter()
         processed = 0
