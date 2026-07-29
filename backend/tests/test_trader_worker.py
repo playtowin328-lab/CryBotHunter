@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
-from app.trader_worker import _cycle_metrics, _cycle_summary, _report_due
+from app.trader_worker import _cycle_blocker, _cycle_metrics, _cycle_summary, _report_due
 
 
 def test_cycle_summary_makes_automatic_trade_attempt_visible():
@@ -58,6 +58,15 @@ def test_cycle_metrics_expose_opportunity_flow_and_top_blocker(monkeypatch):
         "strong_wait_candidates": 1,
         "top_blocker": "STRATEGY_WAIT",
     }
+
+
+def test_cycle_blocker_explains_position_capacity_in_production_logs():
+    assert _cycle_blocker("position already open for symbol") == "POSITION_ALREADY_OPEN"
+    assert _cycle_blocker("maximum open positions reached") == "MAX_POSITIONS"
+    assert (
+        _cycle_blocker("performance guard recovery position limit reached")
+        == "RECOVERY_POSITION_LIMIT"
+    )
 
 
 def test_report_due_respects_interval():
