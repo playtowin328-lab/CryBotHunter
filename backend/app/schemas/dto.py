@@ -313,6 +313,52 @@ class LearningInsightsOut(BaseModel):
     insights: list[LearningInsightOut] = Field(default_factory=list)
 
 
+class LearningMilestoneOut(BaseModel):
+    key: str
+    current: int
+    target: int
+    progress_percent: float
+    complete: bool
+
+
+class TradeBlockerOut(BaseModel):
+    reason: str
+    count: int
+
+
+class LearningProgressOut(BaseModel):
+    stage: Literal["COLLECTING", "CALIBRATING", "LEARNING", "MATURE"]
+    overall_progress_percent: float
+    next_milestone: str | None = None
+    closed_trades: int
+    closed_24h: int
+    closed_7d: int
+    open_positions: int
+    exploration_open_positions: int
+    exploration_closed_trades: int
+    exploration_closed_24h: int
+    signals_24h: int
+    directional_signals_24h: int
+    waits_24h: int
+    agent_decisions_24h: int
+    learning_rules: int
+    learning_observations: int
+    active_rl_pairs: int
+    trained_rl_models: int
+    optimized_pairs: int
+    candle_pairs_ready: int
+    candle_pairs_total: int
+    guard_allowed: bool
+    guard_recovery_mode: bool
+    guard_reason: str
+    last_signal_at: datetime | None = None
+    last_trade_closed_at: datetime | None = None
+    last_learning_at: datetime | None = None
+    last_agent_decision_at: datetime | None = None
+    milestones: list[LearningMilestoneOut] = Field(default_factory=list)
+    top_blockers_24h: list[TradeBlockerOut] = Field(default_factory=list)
+
+
 class ActionMessage(BaseModel):
     ok: bool
     message: str

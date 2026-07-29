@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import LogEntry, OrderStatus, Position, Signal, Trade
+from app.models.entities import AgentDecision, LogEntry, OrderStatus, Position, Signal, Trade
 from app.schemas.dto import AgentAnalysisOut, MarketCoin, PositionUpdateOut, StrategySignal, TradingDecision, TradingRunOut, TradingTickOut
 from app.services.agents import AgentOrchestrator
 from app.services.context_manager import ContextManager
@@ -95,7 +95,8 @@ class TradingEngine:
             return TradingRunOut(scanned=0, opened=0, skipped=0, decisions=[])
         coins = await self.scanner.scan()
         guard = await self.guard.evaluate(db)
-        if not guard.allowed:
+        learning_lane_enabled = self._paper_learning_lane_enabled()
+        if not guard.allowed and not learning_lane_enabled:
             db.add(LogEntry(level="WARNING", message=f"Performance guard blocked entries: {guard.reason}"))
             await db.commit()
             return TradingRunOut(
@@ -108,11 +109,13 @@ class TradingEngine:
                 ],
             )
         open_count = await self._open_positions_count(db)
+        strategy_open_count, exploration_open_count = await self._open_position_counts_by_lane(db)
         open_symbols = await self._open_symbols(db)
         side_counts = await self._open_side_counts(db)
         daily_pnl = (await self.pnl_metrics.summary(db)).pnl_day
         exposure = await self._portfolio_exposure(db)
         decisions: list[TradingDecision] = []
+        exploration_opened = 0
 
         ranked_coins = [(coin, self.strategy.evaluate(coin)) for coin in coins]
         ranked_coins.sort(key=lambda item: self._opportunity_rank(item[0], item[1]), reverse=True)
@@ -126,17 +129,7 @@ class TradingEngine:
             committee: AgentAnalysisOut | None = None
 
             if exploration:
-                trade_settings = replace(
-                    trade_settings,
-                    risk_percent=min(
-                        float(trade_settings.risk_percent),
-                        max(float(self.settings.paper_exploration_risk_percent), 0.01),
-                    ),
-                    min_rating=min(
-                        int(trade_settings.min_rating),
-                        max(int(self.settings.paper_exploration_min_score), 0),
-                    ),
-                )
+                trade_settings = self._paper_exploration_settings(trade_settings)
 
             optimization = await self.optimizer.best_for(db, coin.symbol, timeframe)
             if optimization:
@@ -144,9 +137,13 @@ class TradingEngine:
 
             if coin.symbol in open_symbols:
                 accepted, reason = False, "position already open for symbol"
-            elif self._guard_recovery_position_limit_reached(guard, open_count):
+            elif not exploration and not guard.allowed:
+                accepted, reason = False, f"performance guard: {guard.reason}"
+            elif not exploration and self._guard_recovery_position_limit_reached(guard, strategy_open_count):
                 accepted, reason = False, "performance guard recovery position limit reached"
-            elif exploration and open_count >= max(int(self.settings.paper_exploration_max_positions), 1):
+            elif exploration and exploration_opened >= max(int(self.settings.paper_exploration_max_per_cycle), 1):
+                accepted, reason = False, "paper learning per-cycle entry limit reached"
+            elif exploration and exploration_open_count >= self._paper_exploration_position_limit(guard):
                 accepted, reason = False, "paper exploration position limit reached"
             elif exploration and not await self._paper_exploration_cooldown_elapsed(db, coin.symbol):
                 accepted, reason = False, "paper exploration cooldown is active"
@@ -156,7 +153,9 @@ class TradingEngine:
                     reason = f"{reason}; {optimizer_reason}"
                 if accepted and exploration:
                     reason = f"{reason}; paper exploration from WAIT"
-                if accepted and guard.recovery_mode:
+                if accepted and exploration and not guard.allowed:
+                    reason = f"{reason}; paper learning lane during guard cooldown: {guard.reason}"
+                elif accepted and guard.recovery_mode:
                     reason = f"{reason}; {guard.reason}"
             if accepted:
                 cooldown = await self.cooldown_guard.assess(db, coin.symbol)
@@ -181,7 +180,9 @@ class TradingEngine:
                 elif market_quality.risk_multiplier < 1:
                     trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * market_quality.risk_multiplier, 4))
                     reason = f"{reason}; {market_quality.reason}"
-            if accepted and not exploration:
+                elif exploration:
+                    reason = f"{reason}; {market_quality.reason}"
+            if accepted:
                 quality = await self.quality_gate.assess(db, coin.symbol, timeframe, trade_settings)
                 if not quality.allowed:
                     accepted = False
@@ -191,9 +192,9 @@ class TradingEngine:
                     reason = f"{reason}; {quality.reason}"
                 elif "warning" in quality.reason:
                     reason = f"{reason}; {quality.reason}"
-            elif accepted and exploration:
-                reason = f"{reason}; paper exploration keeps hard risk and market-quality gates"
-            if accepted and not exploration:
+                elif exploration:
+                    reason = f"{reason}; {quality.reason}"
+            if accepted:
                 rl_assessment = await self.rl_gate.assess(db, coin.symbol, signal.signal)
                 if not rl_assessment.allowed:
                     accepted = False
@@ -205,6 +206,8 @@ class TradingEngine:
                     )
                     reason = f"{reason}; {rl_assessment.reason}"
                 elif "agrees" in rl_assessment.reason:
+                    reason = f"{reason}; {rl_assessment.reason}"
+                elif exploration:
                     reason = f"{reason}; {rl_assessment.reason}"
             if accepted:
                 side = "LONG" if signal.signal == "BUY" else "SHORT"
@@ -222,13 +225,17 @@ class TradingEngine:
                     trade_settings = replace(trade_settings, risk_percent=round(trade_settings.risk_percent * direction_multiplier, 4))
                     reason = f"{reason}; {direction_reason}"
             if accepted:
-                accepted, reason, candidate_notional = self._exposure_gate(coin, signal.signal, balance, trade_settings, exposure)
+                exposure_allowed, exposure_reason, candidate_notional = self._exposure_gate(
+                    coin,
+                    signal.signal,
+                    balance,
+                    trade_settings,
+                    exposure,
+                )
+                accepted = exposure_allowed
+                reason = f"{reason}; {exposure_reason}" if exposure_allowed else exposure_reason
             else:
                 candidate_notional = 0.0
-            if accepted and exploration:
-                reason = "risk accepted; paper exploration from WAIT; paper exploration keeps hard risk and market-quality gates"
-                if guard.recovery_mode:
-                    reason = f"{reason}; {guard.reason}"
             if accepted and not exploration:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
@@ -252,6 +259,11 @@ class TradingEngine:
                 )
                 if position:
                     open_count += 1
+                    if exploration:
+                        exploration_open_count += 1
+                        exploration_opened += 1
+                    else:
+                        strategy_open_count += 1
                     open_symbols.add(coin.symbol)
                     side_counts[position.side] = side_counts.get(position.side, 0) + 1
                     exposure["gross"] += candidate_notional
@@ -275,11 +287,23 @@ class TradingEngine:
                     decisions.append(
                         TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="OPENED", reason=reason)
                     )
+                    if exploration:
+                        self._record_paper_learning_decisions(db, coin, signal, allowed=True, reason=reason)
                 else:
+                    if exploration:
+                        self._record_paper_learning_decisions(
+                            db,
+                            coin,
+                            signal,
+                            allowed=False,
+                            reason="position size is zero or execution was not filled",
+                        )
                     decisions.append(
                         TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="SKIPPED", reason="position size is zero")
                     )
             else:
+                if exploration:
+                    self._record_paper_learning_decisions(db, coin, signal, allowed=False, reason=reason)
                 db.add(LogEntry(level="INFO", message=f"Skipped {coin.symbol}: {reason}"))
                 decisions.append(
                     TradingDecision(symbol=coin.symbol, signal=signal.signal, score=signal.score, action="SKIPPED", reason=reason)
@@ -380,6 +404,42 @@ class TradingEngine:
         if any(marker in reason for marker in hard_blocks for reason in signal.reasons):
             return signal, False
 
+        bullish_votes, bearish_votes = self._paper_exploration_votes(coin)
+        strongest_votes = max(bullish_votes, bearish_votes)
+        vote_margin = abs(bullish_votes - bearish_votes)
+        if (
+            strongest_votes < max(int(self.settings.paper_exploration_min_directional_votes), 1)
+            or vote_margin < max(int(self.settings.paper_exploration_min_vote_margin), 1)
+        ):
+            return signal, False
+        direction = "BUY" if bullish_votes > bearish_votes else "SELL"
+        reasons = [
+            (
+                "paper exploration from WAIT: "
+                f"bullish_votes={bullish_votes}, bearish_votes={bearish_votes}, margin={vote_margin}"
+            ),
+            *signal.reasons[:3],
+        ]
+        return StrategySignal(symbol=signal.symbol, signal=direction, score=signal.score, reasons=reasons), True
+
+    def _paper_learning_lane_enabled(self) -> bool:
+        return bool(self.settings.paper_trading and self.settings.paper_exploration_enabled)
+
+    def _paper_exploration_settings(self, settings: RiskSettings) -> RiskSettings:
+        return replace(
+            settings,
+            risk_percent=min(
+                float(settings.risk_percent),
+                max(float(self.settings.paper_exploration_risk_percent), 0.01),
+                max(float(self.settings.paper_exploration_max_risk_percent), 0.01),
+            ),
+            min_rating=min(
+                int(settings.min_rating),
+                max(int(self.settings.paper_exploration_min_score), 0),
+            ),
+        )
+
+    def _paper_exploration_votes(self, coin: MarketCoin) -> tuple[int, int]:
         bullish_votes = sum(
             (
                 coin.regime in {"TRENDING_UP", "UNKNOWN"},
@@ -402,15 +462,46 @@ class TradingEngine:
                 coin.price_change_percent < 0,
             )
         )
-        if bullish_votes == bearish_votes:
-            direction = "BUY" if coin.price_change_percent >= 0 else "SELL"
-        else:
-            direction = "BUY" if bullish_votes > bearish_votes else "SELL"
-        reasons = [
-            f"paper exploration from WAIT: bullish_votes={bullish_votes}, bearish_votes={bearish_votes}",
-            *signal.reasons[:3],
-        ]
-        return StrategySignal(symbol=signal.symbol, signal=direction, score=signal.score, reasons=reasons), True
+        return bullish_votes, bearish_votes
+
+    def _record_paper_learning_decisions(
+        self,
+        db: AsyncSession,
+        coin: MarketCoin,
+        signal: StrategySignal,
+        *,
+        allowed: bool,
+        reason: str,
+    ) -> None:
+        bullish_votes, bearish_votes = self._paper_exploration_votes(coin)
+        context = {
+            "paper_only": True,
+            "source_signal": "WAIT",
+            "signal_score": int(signal.score),
+            "bullish_votes": bullish_votes,
+            "bearish_votes": bearish_votes,
+            "vote_margin": abs(bullish_votes - bearish_votes),
+        }
+        db.add(
+            AgentDecision(
+                agent_name="PaperLearningScout",
+                symbol=coin.symbol,
+                action=signal.signal,
+                confidence=round(max(min(signal.score / 100, 1.0), 0.0), 4),
+                rationale=signal.reasons[0] if signal.reasons else "paper learning candidate",
+                context=context,
+            )
+        )
+        db.add(
+            AgentDecision(
+                agent_name="PaperLearningRiskGate",
+                symbol=coin.symbol,
+                action="ALLOW" if allowed else "BLOCK",
+                confidence=1.0,
+                rationale=reason,
+                context=context,
+            )
+        )
 
     async def _paper_exploration_cooldown_elapsed(self, db: AsyncSession, symbol: str) -> bool:
         cooldown_minutes = max(int(self.settings.paper_exploration_cooldown_minutes), 0)
@@ -472,6 +563,16 @@ class TradingEngine:
         entry_context["decision_reason"] = decision_reason
         entry_context["signal_score"] = int(signal_score)
         entry_context["entry_confidence"] = round(max(min(signal_score / 100, 1.0), 0.0), 4)
+        if paper_exploration:
+            bullish_votes, bearish_votes = self._paper_exploration_votes(coin)
+            entry_context.update(
+                {
+                    "learning_lane": "paper_exploration",
+                    "bullish_votes": bullish_votes,
+                    "bearish_votes": bearish_votes,
+                    "vote_margin": abs(bullish_votes - bearish_votes),
+                }
+            )
         if committee:
             agent_votes = [committee.market, *committee.committee, committee.risk]
             if committee.llm:
@@ -565,6 +666,12 @@ class TradingEngine:
         open_count: int,
     ) -> bool:
         return guard.recovery_mode and open_count >= max(int(self.settings.guard_recovery_max_positions), 1)
+
+    def _paper_exploration_position_limit(self, guard: PerformanceGuardReport) -> int:
+        configured = max(int(self.settings.paper_exploration_max_positions), 1)
+        if guard.recovery_mode or not guard.allowed:
+            return min(configured, max(int(self.settings.paper_exploration_recovery_slots), 1))
+        return configured
 
     def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
         plan = self.risk.calculate_dynamic_exits(
@@ -848,6 +955,17 @@ class TradingEngine:
     async def _open_positions_count(self, db: AsyncSession) -> int:
         result = await db.execute(select(func.count()).select_from(Position).where(Position.status == "OPEN"))
         return int(result.scalar_one())
+
+    async def _open_position_counts_by_lane(self, db: AsyncSession) -> tuple[int, int]:
+        result = await db.execute(select(Position.entry_context).where(Position.status == "OPEN"))
+        strategy_count = 0
+        exploration_count = 0
+        for entry_context in result.scalars().all():
+            if isinstance(entry_context, dict) and entry_context.get("paper_exploration"):
+                exploration_count += 1
+            else:
+                strategy_count += 1
+        return strategy_count, exploration_count
 
     async def _open_symbols(self, db: AsyncSession) -> set[str]:
         result = await db.execute(select(Position.symbol).where(Position.status == "OPEN"))

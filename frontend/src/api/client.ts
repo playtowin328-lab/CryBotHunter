@@ -373,6 +373,52 @@ export type LearningInsights = {
   insights: LearningInsight[];
 };
 
+export type LearningMilestone = {
+  key: string;
+  current: number;
+  target: number;
+  progress_percent: number;
+  complete: boolean;
+};
+
+export type TradeBlocker = {
+  reason: string;
+  count: number;
+};
+
+export type LearningProgress = {
+  stage: "COLLECTING" | "CALIBRATING" | "LEARNING" | "MATURE";
+  overall_progress_percent: number;
+  next_milestone?: string | null;
+  closed_trades: number;
+  closed_24h: number;
+  closed_7d: number;
+  open_positions: number;
+  exploration_open_positions: number;
+  exploration_closed_trades: number;
+  exploration_closed_24h: number;
+  signals_24h: number;
+  directional_signals_24h: number;
+  waits_24h: number;
+  agent_decisions_24h: number;
+  learning_rules: number;
+  learning_observations: number;
+  active_rl_pairs: number;
+  trained_rl_models: number;
+  optimized_pairs: number;
+  candle_pairs_ready: number;
+  candle_pairs_total: number;
+  guard_allowed: boolean;
+  guard_recovery_mode: boolean;
+  guard_reason: string;
+  last_signal_at?: string | null;
+  last_trade_closed_at?: string | null;
+  last_learning_at?: string | null;
+  last_agent_decision_at?: string | null;
+  milestones: LearningMilestone[];
+  top_blockers_24h: TradeBlocker[];
+};
+
 export type ActionMessage = {
   ok: boolean;
   message: string;
