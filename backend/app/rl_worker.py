@@ -90,6 +90,17 @@ async def main() -> None:
                                                 "progress": f"{processed}/{total_pairs}",
                                             },
                                         )
+                                        promotion_state = await trainer.evaluate_shadow_promotion(db, symbol, timeframe)
+                                        if promotion_state == "PROMOTED":
+                                            promoted += 1
+                                            logger.info("RL shadow promoted after forward test %s", key)
+                                            db.add(LogEntry(level="INFO", message=f"RL forward test promoted {key}"))
+                                            await db.commit()
+                                        elif promotion_state == "REJECTED":
+                                            rejected += 1
+                                            logger.info("RL shadow rejected after forward test %s", key)
+                                            db.add(LogEntry(level="WARNING", message=f"RL forward test rejected {key}"))
+                                            await db.commit()
                                         needs_training = await trainer.needs_refresh(db, symbol, timeframe)
                                         if needs_training and training_attempts < training_budget:
                                             training_attempts += 1

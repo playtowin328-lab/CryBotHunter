@@ -250,13 +250,30 @@ RL_MAX_VALIDATION_DRAWDOWN_PERCENT=15
 RL_GATE_MIN_CONFIDENCE=0.55
 RL_GATE_MAX_AGE_HOURS=6
 RL_WAIT_RISK_MULTIPLIER=0.5
+RL_CURRICULUM_ENABLED=true
+RL_BEHAVIOR_PENALTY=0.35
+RL_STRATEGY_ADHERENCE_BONUS=0.03
+SHADOW_TRADE_NOTIONAL=100
+SHADOW_TRADE_MIN_CONFIDENCE=0.55
+SHADOW_FORWARD_MIN_TRADES=5
+SHADOW_FORWARD_MIN_PROFIT_FACTOR=1.1
+SHADOW_FORWARD_MIN_WIN_RATE=40
+SHADOW_FORWARD_MIN_PNL=0
+SHADOW_FORWARD_MAX_DRAWDOWN_PERCENT=8
+SHADOW_FORWARD_MAX_TRIAL_DAYS=7
 ```
 
 The RL service needs no Binance API key because OHLCV is public. Set its Railway Config File to `/backend/railway.rl.toml`; this selects `Dockerfile.rl`. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
 
 PPO training runs outside the asyncio event loop, so `rl-worker` keeps publishing heartbeat updates while PyTorch is busy. `RL_SYMBOLS` defines the RL universe independently from the market scanner, while `RL_TRAINING_MAX_PER_CYCLE` limits heavy training attempts and lets missing pairs enter the queue gradually. Worker status reports expose the current pair, progress, active and shadow decisions, and deferred training totals.
 
-Models that pass validation become `ACTIVE` and may participate in the RL gate. Promotion also requires the selected policy to match or beat buy-and-hold by `RL_MIN_EXCESS_RETURN_PERCENT` and a configurable share of seeds to be profitable (`RL_MIN_PROFITABLE_SEED_RATIO`). Models that miss a promotion threshold become `SHADOW`: they continue publishing auditable `rl_shadow` decisions but have no trading authority. A newer shadow attempt supersedes the previous one, and only promoted `rl_policy` decisions can block or confirm a trade. The dashboard reports active pair coverage separately from the complete experiment history, so values such as `5 active pairs / 512 experiments` are never presented as `5 of 512 pairs`.
+Every new model starts as `SHADOW`, even after it passes chronological validation. Backtest promotion eligibility still requires benchmark edge, seed stability, return, profit factor, trade count, and drawdown gates, but actual `ACTIVE` promotion now additionally requires virtual forward trades to pass PnL, win-rate, profit-factor, and drawdown thresholds. Shadow trades include simulated fees, slippage, and market impact and never create exchange orders. Only a promoted `rl_policy` decision can block or confirm a real/paper strategy entry. The dashboard reports active pair coverage separately from experiment history and shows shadow forward PnL, trades, and promotion state.
+
+RL training uses curriculum stages when clean contiguous trend and normal-volatility windows are available, then finishes on the complete market history. The reward function separates financial outcome from behavior: it penalizes churn, giving back an established unrealized edge, and holding through repeated adverse confirmation; it gives a small credit for strategy-aligned actions and disciplined invalidation exits. Loss post-mortems are replay-weighted in later training, capped by `BAD_REPLAY_MAX_WEIGHT` so one mistake cannot dominate the whole dataset.
+
+Entry execution uses a two-level gatekeeper. The macro gate enforces market regime and direction; the micro gate reads public order-book depth, recent trades, spread, 10-minute momentum, and a clearly labelled iceberg proxy. Strong opposing book+tape flow blocks the entry, neutral or unavailable micro data reduces risk, and supportive consensus keeps normal risk. Configure it with `ENTRY_MICROSTRUCTURE_*`; `AI_COMMITTEE_MIN_CONSENSUS` defaults to `0.75`.
+
+After every closed losing position, `trade_post_mortems` stores the 30-minute pre-entry/position path, entry and exit microstructure, MFE/MAE, fees/slippage, behavior labels, shaped reward, lesson, and replay priority. Correct stop discipline receives credit even when financial PnL is negative. The dashboard and Telegram close report explain the result; `/api/v1/strategy-lab/post-mortems` and `/api/v1/strategy-lab/shadow-trades` expose the auditable records.
 
 Only the `backend` and `frontend` services need public domains. Worker services should remain private. The web process runs Alembic migrations by default; background workers skip migrations to avoid concurrent schema upgrades. Override this only with an explicit `RUN_MIGRATIONS=true`.
 
@@ -332,6 +349,7 @@ Supported commands:
 - Applies risk checks before opening paper positions.
 - Blocks entries when portfolio or single-symbol exposure exceeds configured limits.
 - Uses the AI Trade Committee as an optional final entry gate before opening positions.
+- Requires a macro-regime plus microstructure gate using order-book imbalance, time-and-sales flow, spread, and short momentum before execution.
 - Opens positions with ATR-aware stop/take planning and moves stops to breakeven after configured R-multiple progress.
 - Produces a normalized `[-1, 1]` RSI/ATR/SMA market-context vector suitable for Stable Baselines3 observations.
 - Caps each new position by both loss budget and configured deposit percentage.
@@ -347,10 +365,11 @@ Supported commands:
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
 - Reconciles local order state through `POST /api/v1/orders/reconcile` and Telegram `/reconcile`.
-- Runs strategy backtests through `/api/v1/trading/backtest` using stored candles.
+- Runs strategy backtests through `/api/v1/trading/backtest` using stored candles with volatility-, liquidity-, latency-, fee-, slippage-, and market-impact costs.
 - Runs walk-forward backtests through `/api/v1/trading/backtest/walk-forward` to validate optimized parameters on unseen windows.
 - Runs Strategy Lab optimization through `/api/v1/strategy-lab/optimize` and stores top strategy configurations.
-- Trains multiple seeded PPO candidates on older real candles, validates them chronologically on unseen candles with fees and slippage, and promotes only candidates that pass return, profit-factor, trade-count, and drawdown gates.
+- Trains multiple seeded PPO candidates with curriculum learning and Bad Experience Replay, validates them chronologically with realistic costs, then requires a profitable virtual forward test before activation.
+- Creates structured post-mortems for every loss and distinguishes avoidable behavior from a correctly executed stop.
 - Publishes promoted PPO decisions through the shared database; the trading engine uses them only as a veto or risk reducer behind deterministic risk controls.
 - Provides safe AI Trade Committee decisions through `/api/v1/agents/analyze`; agents vote, veto weak setups, and audit every decision while deterministic risk checks remain the gate.
 - Supports an optional OpenAI-backed LLM advisor behind `LLM_PROVIDER=openai`; disagreements force WAIT rather than increasing risk.

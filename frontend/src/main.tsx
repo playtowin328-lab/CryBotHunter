@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentActivity, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningInsights, LearningProgress, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradeAnalytics, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentActivity, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningInsights, LearningProgress, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, ShadowTrade, StrategyOptimization, SystemStatus, TradeAnalytics, TradePostMortem, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -262,6 +262,8 @@ function DashboardView() {
   const [learningInsights, setLearningInsights] = React.useState<LearningInsights | null>(null);
   const [learningProgress, setLearningProgress] = React.useState<LearningProgress | null>(null);
   const [rlModels, setRlModels] = React.useState<RlModel[]>([]);
+  const [shadowTrades, setShadowTrades] = React.useState<ShadowTrade[]>([]);
+  const [postMortems, setPostMortems] = React.useState<TradePostMortem[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
   const [backtest, setBacktest] = React.useState<BacktestReport | null>(null);
@@ -308,7 +310,9 @@ function DashboardView() {
       request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary),
       request<LearningInsights>("Выводы обучения", api.get<LearningInsights>("/strategy-lab/learning-insights"), setLearningInsights),
       request<LearningProgress>("Прогресс обучения", api.get<LearningProgress>("/strategy-lab/learning-progress"), setLearningProgress),
-      request<RlModel[]>("RL-модели", api.get<RlModel[]>("/strategy-lab/rl-models"), setRlModels)
+      request<RlModel[]>("RL-модели", api.get<RlModel[]>("/strategy-lab/rl-models"), setRlModels),
+      request<ShadowTrade[]>("Теневые сделки", api.get<ShadowTrade[]>("/strategy-lab/shadow-trades"), setShadowTrades),
+      request<TradePostMortem[]>("Разбор ошибок", api.get<TradePostMortem[]>("/strategy-lab/post-mortems"), setPostMortems)
     ]);
     if (loadSeq.current === seq) {
       setRefreshing(false);
@@ -457,6 +461,7 @@ function DashboardView() {
         <Metric label="Закрыто сделок за всё время" value={String(data?.analytics?.closed_trades ?? data?.trades_count ?? 0)} />
       </div>
       <LearningProgressPanel data={learningProgress} />
+      <ExperienceReplayPanel postMortems={postMortems} shadowTrades={shadowTrades} />
       <TradeAnalyticsPanel analytics={data?.analytics ?? null} />
       {run && (
         <div className="panel-block">
@@ -539,6 +544,8 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
           <Metric label="Направленные / WAIT 24ч" value={`${data?.directional_signals_24h ?? 0} / ${data?.waits_24h ?? 0}`} />
           <Metric label="Решения агентов 24ч" value={`${data?.agent_decisions_24h ?? 0}`} />
           <Metric label="Правила / наблюдения" value={`${data?.learning_rules ?? 0} / ${data?.learning_observations ?? 0}`} />
+          <Metric label="Post-mortem / исправимые ошибки" value={`${data?.bad_experiences ?? 0} / ${data?.avoidable_failures ?? 0}`} tone={(data?.avoidable_failures ?? 0) > 0 ? "bad" : undefined} />
+          <Metric label="Дисциплинированные стопы" value={`${data?.disciplined_stop_losses ?? 0}`} tone={(data?.disciplined_stop_losses ?? 0) > 0 ? "good" : undefined} />
           <Metric label="Свечи готовы по парам" value={`${data?.candle_pairs_ready ?? 0} / ${data?.candle_pairs_total ?? 0}`} />
           <Metric label="Покрытие активных RL-пар" value={`${fleet?.active_pairs ?? 0} / ${fleet?.target_pairs ?? 0}`} tone={rlCoverage >= 80 ? "good" : "bad"} />
           <Metric label="Оптимизировано пар" value={`${data?.optimized_pairs ?? 0}`} />
@@ -570,6 +577,8 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
             <Metric label="Успешных повышений" value={`${fleet?.promoted_experiments ?? 0} · ${fmt(fleet?.promotion_rate_percent)}%`} tone={(fleet?.promotion_rate_percent ?? 0) > 0 ? "good" : undefined} />
             <Metric label="Отклонено / архив" value={`${fleet?.rejected_models ?? 0} / ${fleet?.retired_models ?? 0}`} />
             <Metric label="Решения active / shadow за 24ч" value={`${fleet?.active_decisions_24h ?? 0} / ${fleet?.shadow_decisions_24h ?? 0}`} />
+            <Metric label="Виртуальные позиции open / closed" value={`${fleet?.shadow_open_trades ?? 0} / ${fleet?.shadow_closed_trades ?? 0}`} />
+            <Metric label="Shadow Win Rate / PnL" value={`${fmt(fleet?.shadow_win_rate)}% / $${fmt(fleet?.shadow_pnl)}`} tone={(fleet?.shadow_pnl ?? 0) >= 0 ? "good" : "bad"} />
             <Metric label="Последнее обучение" value={formatDateTime(fleet?.last_training_at)} />
           </div>
           <div className="rl-pair-coverage">
@@ -603,6 +612,55 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
           {!blockers.length && <EmptyRow cols={2} text="Отказы ещё не накопились — бот продолжает сканирование" />}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function ExperienceReplayPanel({ postMortems, shadowTrades }: { postMortems: TradePostMortem[]; shadowTrades: ShadowTrade[] }) {
+  return (
+    <div className="experience-grid">
+      <div className="table-wrap experience-card">
+        <div className="table-title">BAD EXPERIENCE REPLAY · разбор убыточных сделок</div>
+        <p className="muted">Каждая ошибка получает причину, поведенческий reward и приоритет повторного изучения. Правильный стоп отмечается отдельно и не считается плохой дисциплиной.</p>
+        <table>
+          <thead><tr><th>Сделка</th><th>Причина</th><th>Результат</th><th>Reward</th><th>Приоритет</th><th>Повторы</th><th>Главный урок</th></tr></thead>
+          <tbody>
+            {postMortems.map((item) => (
+              <tr key={item.id}>
+                <td><strong>{item.symbol}</strong><br /><span className="muted">#{item.position_id} · {formatDateTime(item.closed_at)}</span></td>
+                <td><span className={`pill ${item.strategy_followed ? "buy" : "sell"}`}>{postMortemLabel(item.primary_label)}</span></td>
+                <td className="text-danger">${fmt(item.pnl)} · {fmt(item.result_r)}R</td>
+                <td className={item.shaped_reward >= 0 ? "text-accent" : "text-danger"}>{fmt(item.shaped_reward)}</td>
+                <td>{fmt(item.priority)}</td>
+                <td>{item.replay_count}</td>
+                <td>{item.lessons[0] ?? "Пример сохранён; данных пока мало для точного вывода."}</td>
+              </tr>
+            ))}
+            {!postMortems.length && <EmptyRow cols={7} text="Убыточных закрытых сделок после включения Post-Mortem пока нет" />}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap experience-card">
+        <div className="table-title">SHADOW FORWARD TEST · виртуальные сделки без ордеров</div>
+        <p className="muted">Теневая модель получает право торговать только после реальных forward-наблюдений: PnL, Profit Factor, Win Rate и просадка проверяются до повышения.</p>
+        <table>
+          <thead><tr><th>Модель</th><th>Пара</th><th>Сторона</th><th>Статус</th><th>PnL</th><th>Уверенность</th><th>Время</th></tr></thead>
+          <tbody>
+            {shadowTrades.map((item) => (
+              <tr key={item.id}>
+                <td>#{item.model_id}</td>
+                <td><strong>{item.symbol}</strong></td>
+                <td><span className={`pill ${item.side === "LONG" ? "buy" : "sell"}`}>{translateAction(item.side)}</span></td>
+                <td><span className={`pill ${item.status === "OPEN" ? "" : item.pnl >= 0 ? "buy" : "sell"}`}>{translateStatus(item.status)}</span></td>
+                <td className={item.pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(item.pnl)}</td>
+                <td>{fmt(item.confidence * 100)}%</td>
+                <td>{formatDateTime(item.closed_at ?? item.entered_at)}</td>
+              </tr>
+            ))}
+            {!shadowTrades.length && <EmptyRow cols={7} text="Теневые модели ещё не открыли виртуальные позиции" />}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -850,7 +908,7 @@ function RlModelsTable({ items }: { items: RlModel[] }) {
       <div className="table-title">RL-агент Stable Baselines3</div>
       <table>
         <thead>
-          <tr><th>Пара</th><th>Модель</th><th>Статус</th><th>Train / Validation</th><th>Доходность</th><th>Profit Factor</th><th>Просадка</th><th>Сделки</th><th>Источник</th><th>Причина</th></tr>
+          <tr><th>Пара</th><th>Модель</th><th>Статус</th><th>Train / Validation</th><th>Доходность</th><th>Profit Factor</th><th>Просадка</th><th>Сделки</th><th>Forward test</th><th>Bad replay</th><th>Источник</th><th>Причина</th></tr>
         </thead>
         <tbody>
           {items.map((item) => (
@@ -867,11 +925,16 @@ function RlModelsTable({ items }: { items: RlModel[] }) {
               <td>{fmt(item.metrics.profit_factor)}</td>
               <td className="text-danger">{fmt(item.metrics.max_drawdown_percent)}%</td>
               <td>{item.metrics.trades ?? 0}</td>
+              <td>
+                {item.metrics.forward_status ?? "-"}
+                {item.metrics.forward && <div className="muted">{item.metrics.forward.closed_trades ?? 0} сделок · PF {fmt(item.metrics.forward.profit_factor)} · ${fmt(item.metrics.forward.total_pnl)}</div>}
+              </td>
+              <td>{item.metrics.bad_experiences_seen ?? 0} примеров · {item.metrics.replay_weighted_candles ?? 0} свечей · {item.metrics.curriculum_stages?.length ?? 0} этапа</td>
               <td>{item.metrics.market_data_source === "ccxt" ? "Реальный рынок" : item.metrics.market_data_source ?? "-"}</td>
               <td>{item.metrics.promotion_reason ?? "-"}</td>
             </tr>
           ))}
-          {!items.length && <EmptyRow cols={10} text="RL-моделей пока нет. Тренер ожидает достаточную историю реальных свечей." />}
+          {!items.length && <EmptyRow cols={12} text="RL-моделей пока нет. Тренер ожидает достаточную историю реальных свечей." />}
         </tbody>
       </table>
     </div>
@@ -1329,6 +1392,19 @@ function translateAction(value: string) {
   return labels[value] ?? value;
 }
 
+function postMortemLabel(value: string) {
+  const labels: Record<string, string> = {
+    EARLY_EXIT_FROM_PROFIT: "Ранний выход после прибыли",
+    HELD_AFTER_EARLY_INVALIDATION: "Удержание после инвалидирования",
+    ENTRY_AGAINST_ORDER_FLOW: "Вход против стакана и ленты",
+    LATE_ENTRY_EXHAUSTION: "Запоздалый вход в истощённый импульс",
+    EXECUTION_COST_DAMAGE: "Издержки съели риск",
+    VALID_STOP: "Правильный стоп по плану",
+    UNCLASSIFIED_LOSS: "Причина уточняется"
+  };
+  return labels[value] ?? value.replace(/_/g, " ");
+}
+
 function translateStatus(value: string) {
   const labels: Record<string, string> = {
     NEW: "Новый",
@@ -1355,7 +1431,10 @@ function translateFeature(value: string) {
     momentum_profile: "Профиль импульса",
     risk_profile: "Профиль риска",
     setup_signature: "Сетап",
-    exit_reason: "Причина выхода"
+    exit_reason: "Причина выхода",
+    post_mortem_primary_label: "Главная причина ошибки",
+    post_mortem_behavior: "Поведенческая ошибка",
+    strategy_followed: "Соблюдение стратегии"
   };
   return labels[value] ?? value;
 }
@@ -1397,7 +1476,7 @@ function translateFeatureValue(value: string): string {
     negative: "Отрицательный",
     flat: "Плоский"
   };
-  return translateStatus(labels[value] ?? value);
+  return translateStatus(labels[value] ?? postMortemLabel(value));
 }
 
 function translateRegime(value: string) {
