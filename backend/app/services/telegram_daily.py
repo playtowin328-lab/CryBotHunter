@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import LearningRule, Position, RlModel, TelegramOutboxMessage, WorkerHeartbeat
+from app.services.heartbeat import worker_is_healthy
 from app.services.pnl import PnlMetricsService
 
 
@@ -101,12 +102,22 @@ class TelegramDailyReportService:
             await db.execute(select(WorkerHeartbeat).order_by(WorkerHeartbeat.worker_name.asc()))
         ).scalars().all()
         stale_seconds = max(int(self.settings.worker_heartbeat_stale_seconds), 60)
+        startup_grace_seconds = int(
+            getattr(self.settings, "worker_heartbeat_startup_grace_seconds", 600)
+        )
+        long_task_grace_seconds = int(
+            getattr(self.settings, "worker_heartbeat_long_task_grace_seconds", 900)
+        )
         unhealthy_workers = tuple(
             item.worker_name
             for item in heartbeat_rows
-            if (
-                max(int((generated_at - _aware(item.last_seen_at)).total_seconds()), 0) > stale_seconds
-                or item.status not in {"OK", "PAUSED", "DISABLED"}
+            if not worker_is_healthy(
+                status=item.status,
+                age_seconds=max(int((generated_at - _aware(item.last_seen_at)).total_seconds()), 0),
+                base_seconds=stale_seconds,
+                detail=getattr(item, "detail", None) or {},
+                startup_grace_seconds=startup_grace_seconds,
+                long_task_grace_seconds=long_task_grace_seconds,
             )
         )
 
