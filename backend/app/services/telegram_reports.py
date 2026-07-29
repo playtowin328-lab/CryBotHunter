@@ -589,6 +589,7 @@ def _duration_seconds(seconds: int) -> str:
 def worker_status_label(status: str) -> str:
     labels = {
         "STARTING": "запускается",
+        "MISSING": "не запущен",
         "RUNNING": "выполняет цикл",
         "TRAINING": "обучает RL-модель",
         "IDLE": "ожидает следующий цикл",
@@ -607,6 +608,11 @@ def worker_detail_summary(detail: dict) -> str:
         return "дополнительных данных нет"
     stage_labels = {
         "startup": "инициализация процесса",
+        "awaiting_first_heartbeat": "ожидание первого heartbeat",
+        "candle_ingestion": "загрузка рыночных свечей",
+        "optimizer_cycle": "подготовка цикла оптимизации",
+        "optimizing_strategy": "проверка параметров стратегии",
+        "replica_wait": "цикл выполняет другая реплика",
         "cycle_start": "подготовка нового цикла",
         "checking_model": "проверка свежести модели",
         "ppo_training": "PPO-обучение и validation",

@@ -78,6 +78,21 @@ def test_rl_fleet_separates_pair_coverage_from_experiment_history():
     ]
 
 
+def test_rl_fleet_active_model_count_is_scoped_to_current_universe():
+    fleet = LearningProgressService().build_rl_fleet(
+        status_counts={"ACTIVE": 7, "RETIRED": 3, "REJECTED": 90},
+        active_symbols={"ETH/USDT", "SOL/USDT"},
+        target_symbols=["ETH/USDT", "SOL/USDT"],
+        target_timeframes=["1h"],
+        active_model_count=2,
+    )
+
+    assert fleet.active_models == 2
+    assert fleet.active_pairs == 2
+    assert fleet.total_experiments == 100
+    assert fleet.promoted_experiments == 10
+
+
 def test_rl_milestone_uses_rl_target_not_candle_target():
     milestones = LearningProgressService().build_milestones(
         closed_trades=30,

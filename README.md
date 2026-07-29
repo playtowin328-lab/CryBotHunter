@@ -78,6 +78,7 @@ WORKER_HEARTBEAT_INTERVAL_SECONDS=30
 WORKER_HEARTBEAT_STALE_SECONDS=180
 WORKER_HEARTBEAT_STARTUP_GRACE_SECONDS=600
 WORKER_HEARTBEAT_LONG_TASK_GRACE_SECONDS=900
+WORKER_HEARTBEAT_EXPECTED_WORKERS=trader-worker,candle-worker,rl-worker,optimizer-worker,telegram
 TRADER_LOOP_SECONDS=60
 LLM_PROVIDER=none
 OPENAI_API_KEY=
@@ -196,7 +197,7 @@ STRATEGY_OPTIMIZER_TOP_N=5
 
 `PAPER_TRADING=true` controls order execution only. Paper orders and balances remain virtual while `MARKET_DATA_MODE=ccxt` reads real public exchange prices and candles. The legacy value `MARKET_DATA_MODE=paper` is treated as the same real public feed for backward compatibility. Synthetic data is available only with the explicit value `MARKET_DATA_MODE=synthetic` and must never be used by the RL trainer.
 
-`PAPER_EXPLORATION_ENABLED=true` enables a separate paper-only learning lane when the strict strategy returns `WAIT`. A candidate must clear the score threshold, a decisive indicator vote, market-quality, walk-forward, RL, cooldown, exposure, daily-loss, and drawdown gates. The lane can keep learning while the regular performance guard is cooling down, but it has independent recovery slots, opens at most one new position per cycle, and is hard-capped by `PAPER_EXPLORATION_MAX_RISK_PERCENT` even when an older deployment variable requests more risk. Every candidate and final allow/block result is recorded as `PaperLearningScout` and `PaperLearningRiskGate` agent activity. Exploratory outcomes update learning memory but do not distort the regular-strategy performance guard.
+`PAPER_EXPLORATION_ENABLED=true` enables a separate paper-only learning lane when the strict strategy returns `WAIT`. A candidate must clear the score threshold, a decisive indicator vote, market-quality, walk-forward, RL, cooldown, exposure, daily-loss, and drawdown gates. The lane can keep learning while the regular performance guard is cooling down, but it has independent recovery slots, obeys the configured `PAPER_EXPLORATION_MAX_PER_CYCLE` cap, and is hard-capped by `PAPER_EXPLORATION_MAX_RISK_PERCENT` even when an older deployment variable requests more risk. Every candidate and final allow/block result is recorded as `PaperLearningScout` and `PaperLearningRiskGate` agent activity. Exploratory outcomes update learning memory but do not distort the regular-strategy performance guard.
 
 For exchange testnet execution, set `PAPER_TRADING=false`, `LIVE_TRADING_ENABLED=true`, and keep `EXCHANGE_SANDBOX_ENABLED=true`. Keep `ALLOW_LIVE_TRADING_WITHOUT_SANDBOX=false` until live execution is reviewed, tested, and deliberately approved.
 
@@ -361,7 +362,8 @@ Supported commands:
 - Sends detailed Russian Telegram reports for worker startup, every configured cycle interval, paper/live entries, risk plan, current PnL, protection changes, partial profit, closing reason, final result, learning update, and worker/exchange errors.
 - Persists Telegram notifications in a deduplicated outbox, retries transient delivery failures with exponential backoff, and resumes partially delivered text/photo reports without duplicating the successful part.
 - Adds the latest 48 real Binance 1h candles, entry, current price, stop loss, and take profit to each position card when market data is available.
-- Records worker heartbeats and sends one alert when a worker becomes stale plus a recovery notice when it resumes; `/status` shows current worker and outbox health.
+- Records worker heartbeats and sends one alert when a worker becomes stale plus a recovery notice when it resumes; expected workers that never start are reported as `MISSING`, while retired worker rows are ignored through `WORKER_HEARTBEAT_EXPECTED_WORKERS`.
+- Uses renewable, owner-token Redis leases for every trading mutation. Automatic cycles, manual scans, ticks, and manual closes share one lock, so an expired old process cannot delete a newer worker's lease or submit a competing order.
 - Provides Telegram `/health` diagnostics for PostgreSQL, Redis, Binance market data, the notification queue, and every worker heartbeat.
 - Sends one deduplicated daily Telegram portfolio report with a generated JPEG card (18:00 UTC by default), including PnL, positions, learning, workers, and delivery-queue health.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.

@@ -14,7 +14,7 @@ from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownControl
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient, exchange_error_message
 from app.services.heartbeat import HeartbeatReporter
-from app.services.locks import RedisLockManager
+from app.services.locks import RedisLockManager, TRADING_CYCLE_LOCK
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
 from app.services.schema_readiness import wait_for_required_tables
@@ -52,6 +52,8 @@ async def main() -> None:
     )
     if not schema_ready:
         await heartbeat.stop()
+        await locks.close()
+        await control.close()
         logger.info("Trader worker stopped while waiting for database migration")
         return
     if settings.telegram_trade_reports_enabled:
@@ -71,7 +73,10 @@ async def main() -> None:
         delay = settings.trader_loop_seconds
         try:
             async with AsyncSessionLocal() as db:
-                async with locks.lock("trader-worker-loop", ttl_seconds=max(settings.trader_loop_seconds - 5, 10)) as acquired:
+                async with locks.lock(
+                    TRADING_CYCLE_LOCK,
+                    ttl_seconds=max(settings.trader_loop_seconds - 5, 10),
+                ) as acquired:
                     if acquired:
                         user_settings = (await db.execute(select(UserSettings).order_by(UserSettings.id.asc()).limit(1))).scalar_one_or_none()
                         if not user_settings:
@@ -81,7 +86,7 @@ async def main() -> None:
                         else:
                             current_exchange = user_settings.exchange
                             exchange = ExchangeClient.from_user_settings(user_settings)
-                            trading_engine = TradingEngine(exchange)
+                            trading_engine = TradingEngine(exchange, control=control)
                             reconciliation = OrderReconciliationService(exchange)
                             tick = await trading_engine.manage_open_positions(db)
                             await reconciliation.reconcile(db)
@@ -177,6 +182,8 @@ async def main() -> None:
         if await shutdown.wait(delay):
             break
     await heartbeat.stop()
+    await locks.close()
+    await control.close()
     logger.info("Trader worker shutdown complete")
 
 

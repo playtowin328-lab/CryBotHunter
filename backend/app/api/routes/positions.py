@@ -7,11 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import current_user
 from app.db.session import get_db
-from app.models.entities import LogEntry, OrderStatus, Position, Trade, User
+from app.models.entities import LogEntry, OrderStatus, Position, Trade, User, UserSettings
 from app.schemas.dto import PositionOut
 from app.services.context_manager import ContextManager
+from app.services.exchange import ExchangeClient
 from app.services.execution import ExecutionService
 from app.services.learning import LearningService
+from app.services.locks import RedisLockManager, TRADING_CYCLE_LOCK
 from app.services.post_mortem import PostMortemService
 
 router = APIRouter(prefix="/positions", tags=["positions"])
@@ -23,13 +25,39 @@ async def list_positions(_: User = Depends(current_user), db: AsyncSession = Dep
 
 
 @router.post("/{position_id}/close", response_model=PositionOut)
-async def close_position(position_id: int, _: User = Depends(current_user), db: AsyncSession = Depends(get_db)) -> Position:
+async def close_position(
+    position_id: int,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Position:
+    locks = RedisLockManager()
+    user_settings = (
+        await db.execute(select(UserSettings).where(UserSettings.user_id == user.id))
+    ).scalar_one()
+    execution = ExecutionService(ExchangeClient.from_user_settings(user_settings))
+    try:
+        async with locks.lock(TRADING_CYCLE_LOCK, ttl_seconds=55) as acquired:
+            if not acquired:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Another trading operation is running; retry the close shortly",
+                )
+            return await _close_position_locked(position_id, db, execution)
+    finally:
+        await execution.exchange.close()
+        await locks.close()
+
+
+async def _close_position_locked(
+    position_id: int,
+    db: AsyncSession,
+    execution: ExecutionService,
+) -> Position:
     position = (await db.execute(select(Position).where(Position.id == position_id))).scalar_one_or_none()
     if not position:
         raise HTTPException(status_code=404, detail="Position not found")
     if position.status != "OPEN":
         raise HTTPException(status_code=409, detail="Position is already closed")
-    execution = ExecutionService()
     exit_order = await execution.execute_market(
         db,
         position.symbol,
