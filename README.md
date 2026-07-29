@@ -250,6 +250,8 @@ RL_WAIT_RISK_MULTIPLIER=0.5
 
 The RL service needs no Binance API key because OHLCV is public. Set its Railway Config File to `/backend/railway.rl.toml`; this selects `Dockerfile.rl`. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
 
+PPO training runs outside the asyncio event loop, so `rl-worker` keeps publishing heartbeat updates while PyTorch is busy. Worker status reports expose the current pair, progress, and cycle totals; rejected candidates wait `RL_REJECTED_RETRY_HOURS` before training again instead of repeating on nearly identical candles every prediction cycle.
+
 Only the `backend` and `frontend` services need public domains. Worker services should remain private. The web process runs Alembic migrations by default; background workers skip migrations to avoid concurrent schema upgrades. Override this only with an explicit `RUN_MIGRATIONS=true`.
 
 Registration is owner-only by default: the first account can register on an empty database, then `/auth/register` is closed. Temporarily set `REGISTRATION_ENABLED=true` only when deliberately adding another trusted operator.
