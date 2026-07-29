@@ -6,8 +6,9 @@ from app.db.session import get_db
 from sqlalchemy import func, select
 
 from app.models.entities import LearningRule, Position, RlModel, User
-from app.schemas.dto import LearningInsightsOut, LearningRuleOut, LearningSummaryOut, RlModelOut, StrategyOptimizationOut
+from app.schemas.dto import LearningInsightsOut, LearningProgressOut, LearningRuleOut, LearningSummaryOut, RlModelOut, StrategyOptimizationOut
 from app.services.learning import LearningService
+from app.services.learning_progress import LearningProgressService
 from app.services.optimizer import StrategyOptimizerService
 
 router = APIRouter(prefix="/strategy-lab", tags=["strategy-lab"])
@@ -93,3 +94,11 @@ async def learning_insights(
         ).scalar_one()
     )
     return LearningService().build_insights(rules, learned_from_trades, limit=max(1, min(limit, 50)))
+
+
+@router.get("/learning-progress", response_model=LearningProgressOut)
+async def learning_progress(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LearningProgressOut:
+    return await LearningProgressService().build(db)
