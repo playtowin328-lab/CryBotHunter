@@ -15,7 +15,7 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentActivity, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningInsights, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradeAnalytics, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentActivity, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningInsights, LearningProgress, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradeAnalytics, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
@@ -260,6 +260,7 @@ function DashboardView() {
   const [learningRules, setLearningRules] = React.useState<LearningRule[]>([]);
   const [learningSummary, setLearningSummary] = React.useState<LearningSummary | null>(null);
   const [learningInsights, setLearningInsights] = React.useState<LearningInsights | null>(null);
+  const [learningProgress, setLearningProgress] = React.useState<LearningProgress | null>(null);
   const [rlModels, setRlModels] = React.useState<RlModel[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
@@ -306,6 +307,7 @@ function DashboardView() {
       request<LearningRule[]>("Обучение", api.get<LearningRule[]>("/strategy-lab/learning-rules"), setLearningRules),
       request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary),
       request<LearningInsights>("Выводы обучения", api.get<LearningInsights>("/strategy-lab/learning-insights"), setLearningInsights),
+      request<LearningProgress>("Прогресс обучения", api.get<LearningProgress>("/strategy-lab/learning-progress"), setLearningProgress),
       request<RlModel[]>("RL-модели", api.get<RlModel[]>("/strategy-lab/rl-models"), setRlModels)
     ]);
     if (loadSeq.current === seq) {
@@ -454,6 +456,7 @@ function DashboardView() {
         <Metric label="Win Rate за всё время" value={`${fmt(data?.analytics?.win_rate ?? data?.win_rate)}%`} />
         <Metric label="Закрыто сделок за всё время" value={String(data?.analytics?.closed_trades ?? data?.trades_count ?? 0)} />
       </div>
+      <LearningProgressPanel data={learningProgress} />
       <TradeAnalyticsPanel analytics={data?.analytics ?? null} />
       {run && (
         <div className="panel-block">
@@ -502,6 +505,68 @@ function DashboardView() {
       <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
+  );
+}
+
+function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
+  const milestones = data?.milestones ?? [];
+  const blockers = data?.top_blockers_24h ?? [];
+  return (
+    <div className="panel-block learning-progress-panel">
+      <div className="table-title table-title-row">
+        <span>Прогресс обучения и поток решений</span>
+        <span className={`pill ${data?.stage === "MATURE" ? "buy" : ""}`}>{learningStageLabel(data?.stage)}</span>
+      </div>
+      <div className="learning-progress-body">
+        <div className="learning-progress-hero">
+          <div>
+            <span className="muted">Общий прогресс до устойчивой обучающей базы</span>
+            <strong>{fmt(data?.overall_progress_percent)}%</strong>
+          </div>
+          <div className="learning-progress-track" aria-label="Прогресс обучения">
+            <span style={{ width: `${Math.min(Math.max(data?.overall_progress_percent ?? 0, 0), 100)}%` }} />
+          </div>
+          <p className="muted">
+            Следующая цель: {milestoneLabel(data?.next_milestone)}. Последний урок: {formatDateTime(data?.last_trade_closed_at)}.
+          </p>
+        </div>
+        <div className="analytics-grid">
+          <Metric label="Закрыто всего / 7д / 24ч" value={`${data?.closed_trades ?? 0} / ${data?.closed_7d ?? 0} / ${data?.closed_24h ?? 0}`} />
+          <Metric label="Учебные позиции открыто / закрыто" value={`${data?.exploration_open_positions ?? 0} / ${data?.exploration_closed_trades ?? 0}`} />
+          <Metric label="Сигналы 24ч" value={`${data?.signals_24h ?? 0}`} />
+          <Metric label="Направленные / WAIT 24ч" value={`${data?.directional_signals_24h ?? 0} / ${data?.waits_24h ?? 0}`} />
+          <Metric label="Решения агентов 24ч" value={`${data?.agent_decisions_24h ?? 0}`} />
+          <Metric label="Правила / наблюдения" value={`${data?.learning_rules ?? 0} / ${data?.learning_observations ?? 0}`} />
+          <Metric label="Свечи готовы по парам" value={`${data?.candle_pairs_ready ?? 0} / ${data?.candle_pairs_total ?? 0}`} />
+          <Metric label="Активные RL-пары / модели" value={`${data?.active_rl_pairs ?? 0} / ${data?.trained_rl_models ?? 0}`} />
+          <Metric label="Оптимизировано пар" value={`${data?.optimized_pairs ?? 0}`} />
+          <Metric
+            label="Performance guard"
+            value={data?.guard_recovery_mode ? "Восстановление" : data?.guard_allowed ? "Разрешает" : "Пауза"}
+            tone={data?.guard_allowed ? undefined : "bad"}
+          />
+        </div>
+        <div className="learning-milestones">
+          {milestones.map((item) => (
+            <div className="learning-milestone" key={item.key}>
+              <div><span>{milestoneLabel(item.key)}</span><strong>{item.current} / {item.target}</strong></div>
+              <div className="learning-progress-track"><span style={{ width: `${item.progress_percent}%` }} /></div>
+            </div>
+          ))}
+        </div>
+        <div className="learning-guard-note">
+          <strong>Сейчас:</strong> {data?.guard_reason ?? "данные загружаются"}. Учебный контур работает только в paper-режиме и не ослабляет live-правила.
+        </div>
+      </div>
+      <div className="table-title">Почему входы чаще всего не открылись за 24 часа</div>
+      <table>
+        <thead><tr><th>Причина</th><th>Количество решений</th></tr></thead>
+        <tbody>
+          {blockers.map((item) => <tr key={item.reason}><td>{blockerLabel(item.reason)}</td><td>{item.count}</td></tr>)}
+          {!blockers.length && <EmptyRow cols={2} text="Отказы ещё не накопились — бот продолжает сканирование" />}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1147,6 +1212,51 @@ function EmptyRow(props: { cols: number; text: string }) {
 
 function fmt(value: number | undefined) {
   return Number(value ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+}
+
+function learningStageLabel(value?: LearningProgress["stage"]) {
+  const labels: Record<string, string> = {
+    COLLECTING: "Сбор данных",
+    CALIBRATING: "Калибровка",
+    LEARNING: "Активное обучение",
+    MATURE: "Устойчивая база"
+  };
+  return value ? labels[value] ?? value : "Загрузка";
+}
+
+function milestoneLabel(value?: string | null) {
+  const labels: Record<string, string> = {
+    candle_coverage: "История свечей по всем парам",
+    trade_lessons: "Закрытые сделки-уроки",
+    memory_observations: "Наблюдения в памяти",
+    active_rl_pairs: "Активные RL-модели по парам"
+  };
+  return value ? labels[value] ?? value : "все базовые цели выполнены";
+}
+
+function blockerLabel(value: string) {
+  const labels: Record<string, string> = {
+    POSITION_ALREADY_OPEN: "По паре уже есть открытая позиция",
+    RECOVERY_POSITION_LIMIT: "Лимит обычных позиций в recovery-режиме",
+    PERFORMANCE_GUARD: "Performance guard держит паузу",
+    PAPER_LANE_CYCLE_LIMIT: "Не больше одной учебной сделки за цикл",
+    PAPER_LANE_POSITION_LIMIT: "Заполнены учебные paper-слоты",
+    COOLDOWN: "Активен cooldown после недавней сделки/убытка",
+    MAX_POSITIONS: "Достигнут общий лимит открытых позиций",
+    LOW_SCORE: "Недостаточный рейтинг сигнала",
+    PRETRADE_QUALITY: "Walk-forward не подтвердил качество",
+    RL_DISAGREEMENT: "RL-модель не согласна с направлением",
+    LEARNING_MEMORY: "Память распознала слабый/убыточный паттерн",
+    MARKET_QUALITY: "Недостаточная ликвидность или качество рынка",
+    DIRECTIONAL_EXPOSURE: "Слишком много позиций в одну сторону",
+    EXPOSURE: "Лимит общей или парной экспозиции",
+    OTHER: "Другая защитная проверка"
+  };
+  return labels[value] ?? value;
+}
+
+function formatDateTime(value?: string | null) {
+  return value ? new Date(value).toLocaleString("ru-RU") : "ещё не было";
 }
 
 function exchangeLabel(value: string) {
