@@ -407,7 +407,19 @@ function DashboardView() {
           good={(status?.gross_exposure_percent ?? 0) <= (status?.max_gross_exposure_percent ?? 300)}
         />
         <StatusItem label="Комитет" value={status?.ai_committee_enabled ? `${fmt((status.ai_committee_min_consensus ?? 0) * 100)}%` : "Выкл"} good={status?.ai_committee_enabled ?? true} />
-        <StatusItem label="Защита" value={guard?.allowed ? "Разрешено" : "Заблокировано"} good={guard?.allowed ?? true} />
+        <StatusItem
+          label="Защита"
+          value={
+            guard?.recovery_mode
+              ? `Восстановление · риск ${fmt(guard.risk_multiplier * 100)}%`
+              : guard?.retry_at
+                ? `Пауза до ${new Date(guard.retry_at).toLocaleString("ru-RU")}`
+                : guard?.allowed
+                  ? "Разрешено"
+                  : "Заблокировано"
+          }
+          good={guard?.allowed ?? true}
+        />
       </div>
       <div className="metric-grid">
         <Metric label="Баланс" value={`$${fmt(data?.balance)}`} />
