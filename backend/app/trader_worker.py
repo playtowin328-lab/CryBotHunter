@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.security import decrypt_secret
-from app.db.session import AsyncSessionLocal
+from app.db.session import AsyncSessionLocal, engine
 from app.models.entities import LogEntry, UserSettings
 from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.control import TradingControlService
@@ -16,6 +16,7 @@ from app.services.heartbeat import HeartbeatReporter
 from app.services.locks import RedisLockManager
 from app.services.reconciliation import OrderReconciliationService
 from app.services.risk_manager import RiskSettings
+from app.services.schema_readiness import wait_for_required_tables
 from app.services.telegram_bot import TelegramNotifier
 from app.services.telegram_cards import safe_render_cycle_card
 from app.services.telegram_reports import format_cycle_report, format_worker_error, format_worker_started
@@ -42,6 +43,16 @@ async def main() -> None:
     last_error_report_at: datetime | None = None
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
     await heartbeat.start()
+    schema_ready = await wait_for_required_tables(
+        engine,
+        ("trade_post_mortems", "shadow_trades"),
+        heartbeat=heartbeat,
+        shutdown=shutdown,
+    )
+    if not schema_ready:
+        await heartbeat.stop()
+        logger.info("Trader worker stopped while waiting for database migration")
+        return
     if settings.telegram_trade_reports_enabled:
         await notifier.broadcast(
             format_worker_started(
