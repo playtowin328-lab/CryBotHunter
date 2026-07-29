@@ -110,15 +110,18 @@ class LearningProgressService:
             (self._aware(created_at) for _, _, created_at in rl_status_rows if created_at),
             default=None,
         )
-        active_rl_symbols = set(
-            (
-                await db.execute(
-                    select(RlModel.symbol)
-                    .where(RlModel.is_active.is_(True), RlModel.symbol.in_(rl_symbols))
-                    .distinct()
+        active_rl_records = (
+            await db.execute(
+                select(RlModel.symbol, RlModel.timeframe)
+                .where(
+                    RlModel.is_active.is_(True),
+                    RlModel.symbol.in_(rl_symbols),
+                    RlModel.timeframe.in_(rl_timeframes),
                 )
-            ).scalars().all()
-        )
+                .distinct()
+            )
+        ).all()
+        active_rl_symbols = {str(symbol) for symbol, _ in active_rl_records}
         rl_decision_rows = (
             await db.execute(
                 select(AgentDecision.agent_name, func.count(AgentDecision.id))
@@ -149,6 +152,7 @@ class LearningProgressService:
             active_symbols=active_rl_symbols,
             target_symbols=rl_symbols,
             target_timeframes=rl_timeframes,
+            active_model_count=len(active_rl_records),
             decision_counts=rl_decision_counts,
             last_training_at=rl_last_training_at,
             shadow_open_trades=shadow_open_trades,
@@ -265,6 +269,7 @@ class LearningProgressService:
         active_symbols: set[str],
         target_symbols: list[str],
         target_timeframes: list[str],
+        active_model_count: int | None = None,
         decision_counts: dict[str, int] | None = None,
         last_training_at: datetime | None = None,
         shadow_open_trades: int = 0,
@@ -278,9 +283,14 @@ class LearningProgressService:
         }
         normalized_targets = list(dict.fromkeys(str(symbol) for symbol in target_symbols if symbol))
         active_in_scope = {symbol for symbol in active_symbols if symbol in normalized_targets}
-        active_models = normalized_counts.get("ACTIVE", 0)
+        historical_active_models = normalized_counts.get("ACTIVE", 0)
+        active_models = (
+            historical_active_models
+            if active_model_count is None
+            else max(int(active_model_count), 0)
+        )
         retired_models = normalized_counts.get("RETIRED", 0)
-        promoted_experiments = active_models + retired_models
+        promoted_experiments = historical_active_models + retired_models
         total_experiments = sum(normalized_counts.values())
         decisions = decision_counts or {}
         return RlFleetOut(

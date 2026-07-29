@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     worker_heartbeat_stale_seconds: int = 180
     worker_heartbeat_startup_grace_seconds: int = 600
     worker_heartbeat_long_task_grace_seconds: int = 900
+    worker_heartbeat_expected_workers_raw: str = Field(
+        default="trader-worker,candle-worker,rl-worker,optimizer-worker,telegram",
+        validation_alias="WORKER_HEARTBEAT_EXPECTED_WORKERS",
+    )
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None
@@ -216,6 +220,10 @@ class Settings(BaseSettings):
     @property
     def telegram_allowed_chat_ids(self) -> list[int]:
         return [int(item) for item in _parse_csv(self.telegram_allowed_chat_ids_raw)]
+
+    @property
+    def worker_heartbeat_expected_workers(self) -> list[str]:
+        return list(dict.fromkeys(item.lower() for item in _parse_csv(self.worker_heartbeat_expected_workers_raw)))
 
     @property
     def candle_ingest_symbols(self) -> list[str]:

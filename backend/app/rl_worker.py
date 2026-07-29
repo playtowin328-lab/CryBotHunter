@@ -45,6 +45,7 @@ async def main() -> None:
     )
     if not schema_ready:
         await heartbeat.stop()
+        await locks.close()
         logger.info("RL worker stopped while waiting for database migration")
         return
     async with AsyncSessionLocal() as db:
@@ -245,6 +246,7 @@ async def main() -> None:
         if await shutdown.wait(max(settings.rl_prediction_loop_seconds, 60)):
             break
     await heartbeat.stop()
+    await locks.close()
     logger.info("RL worker shutdown complete")
 
 

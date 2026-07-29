@@ -41,7 +41,11 @@ logger = logging.getLogger(__name__)
 
 
 class TradingEngine:
-    def __init__(self, exchange: ExchangeClient | None = None) -> None:
+    def __init__(
+        self,
+        exchange: ExchangeClient | None = None,
+        control: TradingControlService | None = None,
+    ) -> None:
         self.exchange = exchange or ExchangeClient()
         self.scanner = MarketScanner(self.exchange)
         self.market_quality = MarketQualityGate()
@@ -61,8 +65,13 @@ class TradingEngine:
         self.post_mortem = PostMortemService(self.exchange)
         self.telegram = TelegramNotifier()
         self.context = ContextManager()
-        self.control = TradingControlService()
+        self.control = control or TradingControlService()
+        self._owns_control = control is None
         self.settings = get_settings()
+
+    async def close(self) -> None:
+        if self._owns_control:
+            await self.control.close()
 
     async def _position_card(
         self,
