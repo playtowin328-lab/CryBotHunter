@@ -40,7 +40,7 @@ async def ml_predictions(user: User = Depends(current_user), db: AsyncSession = 
 
 @router.post("/history/ingest", response_model=HistoryIngestOut)
 async def ingest_history(
-    symbol: str = "BTC/USDT",
+    symbol: str = "ETH/USDT",
     timeframe: str = "1h",
     limit: int = 500,
     user: User = Depends(current_user),

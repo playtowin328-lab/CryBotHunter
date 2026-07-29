@@ -482,6 +482,9 @@ export type LearningProgress = {
   signals_24h: number;
   directional_signals_24h: number;
   waits_24h: number;
+  strong_waits_24h: number;
+  trading_symbols: string[];
+  excluded_symbols: string[];
   agent_decisions_24h: number;
   learning_rules: number;
   learning_observations: number;

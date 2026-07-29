@@ -155,6 +155,8 @@ class TradingEngine:
                 accepted, reason = False, "paper exploration cooldown is active"
             else:
                 accepted, reason = self.risk.can_open(signal, trade_settings, open_count, daily_pnl)
+                if not accepted and signal.signal == "WAIT":
+                    reason = self._strategy_wait_reason(coin, signal)
                 if accepted and optimizer_reason:
                     reason = f"{reason}; {optimizer_reason}"
                 if accepted and exploration:
@@ -491,6 +493,14 @@ class TradingEngine:
             )
         )
         return bullish_votes, bearish_votes
+
+    def _strategy_wait_reason(self, coin: MarketCoin, signal: StrategySignal) -> str:
+        bullish_votes, bearish_votes = self._paper_exploration_votes(coin)
+        missing = "; ".join(signal.reasons[:2]) if signal.reasons else "no directional confirmation"
+        return (
+            f"strategy WAIT score={signal.score}, rating={coin.rating}, "
+            f"bullish_votes={bullish_votes}, bearish_votes={bearish_votes}: {missing}"
+        )
 
     def _record_paper_learning_decisions(
         self,

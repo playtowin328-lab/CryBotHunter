@@ -54,6 +54,19 @@ class LearningProgressService:
         signals_24h = sum(signal_counts.values())
         directional_signals = signal_counts.get("BUY", 0) + signal_counts.get("SELL", 0)
         waits = signal_counts.get("WAIT", 0)
+        strong_waits = int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(Signal)
+                    .where(
+                        Signal.created_at >= cutoff_24h,
+                        Signal.signal == "WAIT",
+                        Signal.score >= settings.paper_exploration_min_score,
+                    )
+                )
+            ).scalar_one()
+        )
 
         agent_decisions_24h = int(
             (
@@ -218,6 +231,9 @@ class LearningProgressService:
             signals_24h=signals_24h,
             directional_signals_24h=directional_signals,
             waits_24h=waits,
+            strong_waits_24h=strong_waits,
+            trading_symbols=settings.market_scan_symbols,
+            excluded_symbols=settings.trading_excluded_symbols,
             agent_decisions_24h=agent_decisions_24h,
             learning_rules=len(rules),
             learning_observations=learning_observations,
@@ -328,6 +344,7 @@ class LearningProgressService:
     def normalize_blocker(self, message: str) -> str:
         reason = message.partition(":")[2].strip().lower()
         markers = (
+            ("strategy wait", "STRATEGY_WAIT"),
             ("position already open", "POSITION_ALREADY_OPEN"),
             ("recovery position limit", "RECOVERY_POSITION_LIMIT"),
             ("performance guard", "PERFORMANCE_GUARD"),
@@ -340,6 +357,8 @@ class LearningProgressService:
             ("rl disagrees", "RL_DISAGREEMENT"),
             ("learning", "LEARNING_MEMORY"),
             ("market quality", "MARKET_QUALITY"),
+            ("micro gate", "MICROSTRUCTURE"),
+            ("committee rejected", "COMMITTEE"),
             ("same-side", "DIRECTIONAL_EXPOSURE"),
             ("exposure limit", "EXPOSURE"),
         )

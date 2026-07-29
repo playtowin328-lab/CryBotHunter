@@ -4,6 +4,13 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEFAULT_TRADING_SYMBOLS = (
+    "ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,"
+    "AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT,AAVE/USDT,UNI/USDT,NEAR/USDT,"
+    "FET/USDT,ONDO/USDT"
+)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -101,13 +108,18 @@ class Settings(BaseSettings):
     pretrade_quality_min_profitable_windows_percent: float = 50.0
     pretrade_quality_min_trades: int = 3
     pretrade_quality_min_risk_multiplier: float = 0.35
-    market_quality_min_quote_volume: float = 100_000_000.0
+    market_quality_min_quote_volume: float = 25_000_000.0
+    market_quality_hard_min_quote_volume: float = 5_000_000.0
     market_quality_max_spread_bps: float = 25.0
     market_quality_max_price_change_percent: float = 18.0
     market_quality_min_risk_multiplier: float = 0.5
     market_scan_concurrency: int = 3
+    trading_excluded_symbols_raw: str = Field(
+        default="BTC/USDT",
+        validation_alias="TRADING_EXCLUDED_SYMBOLS",
+    )
     market_scan_symbols_raw: str = Field(
-        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        default=DEFAULT_TRADING_SYMBOLS,
         validation_alias="MARKET_SCAN_SYMBOLS",
     )
     loss_cooldown_enabled: bool = True
@@ -116,15 +128,15 @@ class Settings(BaseSettings):
     loss_cooldown_loss_streak: int = 2
     loss_cooldown_min_loss: float = 0.0
     paper_exploration_enabled: bool = True
-    paper_exploration_min_score: int = 65
+    paper_exploration_min_score: int = 60
     paper_exploration_risk_percent: float = 0.15
     paper_exploration_max_risk_percent: float = 0.15
     paper_exploration_max_positions: int = 5
     paper_exploration_recovery_slots: int = 2
-    paper_exploration_max_per_cycle: int = 1
-    paper_exploration_min_directional_votes: int = 5
+    paper_exploration_max_per_cycle: int = 2
+    paper_exploration_min_directional_votes: int = 4
     paper_exploration_min_vote_margin: int = 2
-    paper_exploration_cooldown_minutes: int = 240
+    paper_exploration_cooldown_minutes: int = 180
     learning_progress_target_trades: int = 30
     learning_progress_target_observations: int = 100
     post_mortem_enabled: bool = True
@@ -152,7 +164,7 @@ class Settings(BaseSettings):
     strategy_optimizer_min_validation_profit: float = 0.0
     strategy_optimizer_max_overfit_ratio: float = 8.0
     candle_ingest_symbols_raw: str = Field(
-        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        default=DEFAULT_TRADING_SYMBOLS,
         validation_alias="CANDLE_INGEST_SYMBOLS",
     )
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
@@ -162,7 +174,7 @@ class Settings(BaseSettings):
     rl_trainer_enabled: bool = True
     rl_gate_enabled: bool = True
     rl_symbols_raw: str = Field(
-        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        default=DEFAULT_TRADING_SYMBOLS,
         validation_alias="RL_SYMBOLS",
     )
     rl_training_max_per_cycle: int = 1
@@ -207,11 +219,22 @@ class Settings(BaseSettings):
 
     @property
     def candle_ingest_symbols(self) -> list[str]:
-        return _parse_csv(self.candle_ingest_symbols_raw)
+        return self._allowed_symbols(self.candle_ingest_symbols_raw)
 
     @property
     def market_scan_symbols(self) -> list[str]:
-        return _parse_csv(self.market_scan_symbols_raw)
+        return self._allowed_symbols(self.market_scan_symbols_raw)
+
+    @property
+    def trading_excluded_symbols(self) -> list[str]:
+        return _parse_symbol_csv(self.trading_excluded_symbols_raw)
+
+    def is_symbol_excluded(self, symbol: str) -> bool:
+        return str(symbol or "").strip().upper() in set(self.trading_excluded_symbols)
+
+    def _allowed_symbols(self, value: str) -> list[str]:
+        excluded = set(self.trading_excluded_symbols)
+        return [symbol for symbol in _parse_symbol_csv(value) if symbol not in excluded]
 
     @property
     def candle_ingest_timeframes(self) -> list[str]:
@@ -236,7 +259,7 @@ class Settings(BaseSettings):
 
     @property
     def rl_symbols(self) -> list[str]:
-        return _parse_csv(self.rl_symbols_raw) or self.candle_ingest_symbols
+        return self._allowed_symbols(self.rl_symbols_raw) or self.candle_ingest_symbols
 
 
 @lru_cache
@@ -246,6 +269,10 @@ def get_settings() -> Settings:
 
 def _parse_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_symbol_csv(value: str) -> list[str]:
+    return list(dict.fromkeys(item.upper() for item in _parse_csv(value)))
 
 
 def async_database_url(url: str) -> str:

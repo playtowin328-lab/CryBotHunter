@@ -16,7 +16,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_checker import check_env
 
 from app.core.config import get_settings
-from app.models.entities import AgentDecision, RlModel
+from app.models.entities import AgentDecision, RlModel, ShadowTrade
 from app.services.history import HistoricalDataService
 from app.services.post_mortem import BadExperienceReplay
 from app.services.rl_environment import FEATURE_NAMES, CryptoTradingEnv, build_feature_frame, latest_observation
@@ -49,6 +49,30 @@ class RlTrainingService:
 
     async def close(self) -> None:
         await self.history.exchange.close()
+
+    async def retire_excluded_symbols(self, db: AsyncSession, symbols: list[str]) -> dict[str, int]:
+        excluded = list(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if symbol))
+        if not excluded:
+            return {"models_retired": 0, "shadow_trades_closed": 0}
+        now = datetime.now(timezone.utc)
+        model_result = await db.execute(
+            update(RlModel)
+            .where(
+                RlModel.symbol.in_(excluded),
+                RlModel.status.in_(("ACTIVE", "SHADOW", "CANDIDATE")),
+            )
+            .values(status="RETIRED", is_active=False)
+        )
+        shadow_result = await db.execute(
+            update(ShadowTrade)
+            .where(ShadowTrade.symbol.in_(excluded), ShadowTrade.status == "OPEN")
+            .values(status="CLOSED", exit_reason="SYMBOL_EXCLUDED", closed_at=now)
+        )
+        await db.flush()
+        return {
+            "models_retired": max(int(getattr(model_result, "rowcount", 0) or 0), 0),
+            "shadow_trades_closed": max(int(getattr(shadow_result, "rowcount", 0) or 0), 0),
+        }
 
     async def needs_refresh(self, db: AsyncSession, symbol: str, timeframe: str) -> bool:
         latest = await self.latest_for(db, symbol, timeframe)

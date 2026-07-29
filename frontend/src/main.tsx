@@ -21,8 +21,9 @@ import "./styles.css";
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
 
 const TRADING_SYMBOLS = [
-  "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT",
-  "DOGE/USDT", "LINK/USDT", "AVAX/USDT", "DOT/USDT", "LTC/USDT", "TRX/USDT"
+  "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT",
+  "LINK/USDT", "AVAX/USDT", "DOT/USDT", "LTC/USDT", "TRX/USDT", "AAVE/USDT",
+  "UNI/USDT", "NEAR/USDT", "FET/USDT", "ONDO/USDT"
 ];
 
 function App() {
@@ -116,7 +117,7 @@ function AgentsView() {
   const [analysis, setAnalysis] = React.useState<AgentAnalysis | null>(null);
   const [decisions, setDecisions] = React.useState<AgentDecision[]>([]);
   const [activity, setActivity] = React.useState<AgentActivity | null>(null);
-  const [symbol, setSymbol] = React.useState("BTC/USDT");
+  const [symbol, setSymbol] = React.useState("ETH/USDT");
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
@@ -356,7 +357,7 @@ function DashboardView() {
     try {
       setLoading(true);
       setError("");
-      const symbol = encodeURIComponent("BTC/USDT");
+      const symbol = encodeURIComponent("ETH/USDT");
       const { data: history } = await api.post<HistoryIngest>(`/market/history/ingest?symbol=${symbol}&timeframe=1h&limit=500`);
       setHistoryResult(history);
       const { data: report } = await api.post<BacktestReport>(`/trading/backtest?symbol=${symbol}&timeframe=1h&limit=500`);
@@ -372,7 +373,7 @@ function DashboardView() {
     try {
       setLoading(true);
       setError("");
-      const symbol = encodeURIComponent("BTC/USDT");
+      const symbol = encodeURIComponent("ETH/USDT");
       const { data } = await api.post<StrategyOptimization[]>(`/strategy-lab/optimize?symbol=${symbol}&timeframe=1h&limit=500`);
       setOptimizations(data);
     } catch (err) {
@@ -386,7 +387,7 @@ function DashboardView() {
     try {
       setLoading(true);
       setError("");
-      const symbol = encodeURIComponent("BTC/USDT");
+      const symbol = encodeURIComponent("ETH/USDT");
       const { data } = await api.post<WalkForwardReport>(`/trading/backtest/walk-forward?symbol=${symbol}&timeframe=1h&limit=1000`);
       setWalkForward(data);
     } catch (err) {
@@ -414,7 +415,7 @@ function DashboardView() {
     <section className="space-y-5">
       <Header title="Панель" subtitle="Портфель, риск-состояние и сводка работы бота">
         <button className="btn" onClick={() => void load()} disabled={refreshing}><RefreshCw size={16} /> {refreshing ? "Обновляется" : "Обновить"}</button>
-        <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Бэктест BTC</button>
+        <button className="btn" onClick={loadHistoryAndBacktest} disabled={loading}><BarChart3 size={16} /> Бэктест ETH</button>
         <button className="btn" onClick={runWalkForward} disabled={loading}><BarChart3 size={16} /> Walk-forward</button>
         <button className="btn" onClick={ingestBatchHistory} disabled={loading}><RefreshCw size={16} /> Загрузить свечи</button>
         <button className="btn" onClick={optimizeStrategy} disabled={loading}><Settings size={16} /> Оптимизировать</button>
@@ -542,6 +543,8 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
           <Metric label="Учебные позиции открыто / закрыто" value={`${data?.exploration_open_positions ?? 0} / ${data?.exploration_closed_trades ?? 0}`} />
           <Metric label="Сигналы 24ч" value={`${data?.signals_24h ?? 0}`} />
           <Metric label="Направленные / WAIT 24ч" value={`${data?.directional_signals_24h ?? 0} / ${data?.waits_24h ?? 0}`} />
+          <Metric label="Сильные WAIT-кандидаты 24ч" value={`${data?.strong_waits_24h ?? 0}`} />
+          <Metric label="Торговые / исключённые пары" value={`${data?.trading_symbols?.length ?? 0} / ${data?.excluded_symbols?.length ?? 0}`} />
           <Metric label="Решения агентов 24ч" value={`${data?.agent_decisions_24h ?? 0}`} />
           <Metric label="Правила / наблюдения" value={`${data?.learning_rules ?? 0} / ${data?.learning_observations ?? 0}`} />
           <Metric label="Post-mortem / исправимые ошибки" value={`${data?.bad_experiences ?? 0} / ${data?.avoidable_failures ?? 0}`} tone={(data?.avoidable_failures ?? 0) > 0 ? "bad" : undefined} />
@@ -602,6 +605,9 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
         </div>
         <div className="learning-guard-note">
           <strong>Сейчас:</strong> {data?.guard_reason ?? "данные загружаются"}. Учебный контур работает только в paper-режиме и не ослабляет live-правила.
+          {!!data?.excluded_symbols?.length && (
+            <span> Исключено из новых входов, RL и shadow: <strong>{data.excluded_symbols.join(", ")}</strong>.</span>
+          )}
         </div>
       </div>
       <div className="table-title">Почему входы чаще всего не открылись за 24 часа</div>
@@ -1352,6 +1358,9 @@ function blockerLabel(value: string) {
     RL_DISAGREEMENT: "RL-модель не согласна с направлением",
     LEARNING_MEMORY: "Память распознала слабый/убыточный паттерн",
     MARKET_QUALITY: "Недостаточная ликвидность или качество рынка",
+    STRATEGY_WAIT: "Стратегии не хватило подтверждений направления",
+    MICROSTRUCTURE: "Стакан и лента не подтвердили точку входа",
+    COMMITTEE: "Ансамбль агентов не набрал консенсус 75%",
     DIRECTIONAL_EXPOSURE: "Слишком много позиций в одну сторону",
     EXPOSURE: "Лимит общей или парной экспозиции",
     OTHER: "Другая защитная проверка"
