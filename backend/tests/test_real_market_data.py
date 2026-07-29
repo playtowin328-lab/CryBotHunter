@@ -36,6 +36,8 @@ def test_default_market_universe_has_twelve_liquid_pairs():
 
     assert len(settings.market_scan_symbols) == 12
     assert {"BTC/USDT", "ETH/USDT", "LINK/USDT", "TRX/USDT"}.issubset(settings.market_scan_symbols)
+    assert settings.rl_symbols == settings.market_scan_symbols
+    assert settings.rl_training_max_per_cycle == 1
 
 
 def test_strong_spot_setup_can_reach_tradeable_rating_without_open_interest():

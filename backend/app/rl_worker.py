@@ -29,22 +29,28 @@ async def main() -> None:
     locks = RedisLockManager()
     heartbeat = HeartbeatReporter("rl-worker")
     logger.info(
-        "RL worker started symbols=%s timeframes=%s loop=%ss",
-        settings.candle_ingest_symbols,
+        "RL worker started symbols=%s timeframes=%s loop=%ss max_training_per_cycle=%s",
+        settings.rl_symbols,
         settings.candle_ingest_timeframes,
         settings.rl_prediction_loop_seconds,
+        settings.rl_training_max_per_cycle,
     )
     await heartbeat.start()
     while not shutdown.requested:
         cycle_started = perf_counter()
         processed = 0
+        training_attempts = 0
         trained = 0
         promoted = 0
         rejected = 0
+        shadowed = 0
         decisions = 0
+        shadow_decisions = 0
+        training_deferred = 0
         waiting = 0
         errors = 0
-        total_pairs = len(settings.candle_ingest_symbols) * len(settings.candle_ingest_timeframes)
+        total_pairs = len(settings.rl_symbols) * len(settings.candle_ingest_timeframes)
+        training_budget = max(int(settings.rl_training_max_per_cycle), 0)
         try:
             if not settings.rl_trainer_enabled:
                 logger.warning("RL worker disabled by RL_TRAINER_ENABLED=false")
@@ -55,6 +61,7 @@ async def main() -> None:
                     {
                         "stage": "cycle_start",
                         "progress": f"0/{total_pairs}",
+                        "training_budget": training_budget,
                         "cycle_started_at": datetime.now(timezone.utc).isoformat(),
                     },
                 )
@@ -66,7 +73,7 @@ async def main() -> None:
                     )
                     async with locks.lock("rl-worker-loop", ttl_seconds=lock_ttl) as acquired:
                         if acquired:
-                            for symbol in settings.candle_ingest_symbols:
+                            for symbol in settings.rl_symbols:
                                 if shutdown.requested:
                                     break
                                 for timeframe in settings.candle_ingest_timeframes:
@@ -83,7 +90,9 @@ async def main() -> None:
                                                 "progress": f"{processed}/{total_pairs}",
                                             },
                                         )
-                                        if await trainer.needs_refresh(db, symbol, timeframe):
+                                        needs_training = await trainer.needs_refresh(db, symbol, timeframe)
+                                        if needs_training and training_attempts < training_budget:
+                                            training_attempts += 1
                                             await heartbeat.set_status(
                                                 "TRAINING",
                                                 {
@@ -100,25 +109,40 @@ async def main() -> None:
                                             trained += 1
                                             if model.is_active:
                                                 promoted += 1
+                                                decisions += 1
                                             else:
-                                                rejected += 1
+                                                shadowed += 1
+                                                shadow_decisions += 1
+                                                waiting += 1
                                             logger.info("RL trained %s status=%s metrics=%s", key, model.status, model.metrics)
                                             db.add(LogEntry(level="INFO", message=f"RL trained {key}: status={model.status}"))
                                             await db.commit()
                                         else:
+                                            if needs_training:
+                                                training_deferred += 1
                                             await heartbeat.set_status(
                                                 "RUNNING",
                                                 {
-                                                    "stage": "publishing_decision",
+                                                    "stage": "training_deferred" if needs_training else "publishing_decision",
                                                     "pair": key,
                                                     "progress": f"{processed}/{total_pairs}",
+                                                    "training_budget": training_budget,
+                                                    "training_deferred": training_deferred,
                                                 },
                                             )
-                                            decision = await trainer.publish_active_decision(db, symbol, timeframe)
+                                            decision, shadow_decision = await trainer.publish_decisions(db, symbol, timeframe)
                                             if decision:
                                                 decisions += 1
                                                 logger.info("RL decision %s action=%s confidence=%.2f", key, decision.action, decision.confidence)
-                                            else:
+                                            if shadow_decision:
+                                                shadow_decisions += 1
+                                                logger.info(
+                                                    "RL shadow %s action=%s confidence=%.2f authority=false",
+                                                    key,
+                                                    shadow_decision.action,
+                                                    shadow_decision.confidence,
+                                                )
+                                            if not decision:
                                                 waiting += 1
                                     except RlTrainingInterrupted:
                                         logger.info("RL training stopped by graceful shutdown")
@@ -139,9 +163,14 @@ async def main() -> None:
                     "processed": processed,
                     "total_pairs": total_pairs,
                     "trained": trained,
+                    "training_attempts": training_attempts,
                     "promoted": promoted,
                     "rejected": rejected,
+                    "shadowed": shadowed,
                     "decisions": decisions,
+                    "shadow_decisions": shadow_decisions,
+                    "training_deferred": training_deferred,
+                    "training_budget": training_budget,
                     "waiting": waiting,
                     "errors": errors,
                     "duration_seconds": duration_seconds,
@@ -149,13 +178,16 @@ async def main() -> None:
                 }
                 await heartbeat.set_status("DEGRADED" if errors else "IDLE", summary)
                 logger.info(
-                    "RL cycle completed processed=%s/%s trained=%s promoted=%s rejected=%s decisions=%s waiting=%s errors=%s duration=%.2fs",
+                    "RL cycle completed processed=%s/%s trained=%s promoted=%s shadowed=%s rejected=%s decisions=%s shadow_decisions=%s deferred=%s waiting=%s errors=%s duration=%.2fs",
                     processed,
                     total_pairs,
                     trained,
                     promoted,
+                    shadowed,
                     rejected,
                     decisions,
+                    shadow_decisions,
+                    training_deferred,
                     waiting,
                     errors,
                     duration_seconds,

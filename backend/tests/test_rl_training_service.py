@@ -16,6 +16,8 @@ from app.services.rl_training import RlTrainingService
     [
         ("REJECTED", 1, False),
         ("REJECTED", 7, True),
+        ("SHADOW", 1, False),
+        ("SHADOW", 7, True),
         ("ACTIVE", 12, False),
         ("ACTIVE", 25, True),
     ],
@@ -69,6 +71,8 @@ async def test_training_moves_cpu_bound_candidate_search_off_event_loop(monkeypa
         rl_validation_percent=25,
         rl_training_timesteps=20000,
         rl_min_validation_return_percent=0.0,
+        rl_min_excess_return_percent=0.0,
+        rl_min_profitable_seed_ratio=0.5,
         rl_min_validation_profit_factor=1.05,
         rl_min_validation_trades=5,
         rl_max_validation_drawdown_percent=15.0,
@@ -91,6 +95,8 @@ async def test_training_moves_cpu_bound_candidate_search_off_event_loop(monkeypa
         assert len(validation_frame) == 500
         return fake_model, {
             "return_percent": 1.0,
+            "excess_return_percent": -1.0,
+            "profitable_seed_ratio": 1.0,
             "max_drawdown_percent": 20.0,
             "profit_factor": 1.1,
             "trades": 10,
@@ -98,6 +104,13 @@ async def test_training_moves_cpu_bound_candidate_search_off_event_loop(monkeypa
 
     monkeypatch.setattr(service, "_train_candidates", train_candidates)
     monkeypatch.setattr(service, "_serialize", lambda model: b"artifact" if model is fake_model else b"")
+    stored_decisions: list[str] = []
+
+    def store_decision(_db, _record, _model, _frame, *, agent_name="rl_policy"):
+        stored_decisions.append(agent_name)
+        return None
+
+    monkeypatch.setattr(service, "_store_decision", store_decision)
     offloaded: list[object] = []
 
     async def fake_to_thread(function, *args):
@@ -113,6 +126,9 @@ async def test_training_moves_cpu_bound_candidate_search_off_event_loop(monkeypa
         def add(self, item):
             self.added.append(item)
 
+        async def execute(self, _statement):
+            return None
+
         async def flush(self):
             return None
 
@@ -126,5 +142,31 @@ async def test_training_moves_cpu_bound_candidate_search_off_event_loop(monkeypa
     record = await service.train_symbol(db, "ETH/USDT", "1h")
 
     assert offloaded == [train_candidates]
-    assert record.status == "REJECTED"
+    assert record.status == "SHADOW"
     assert record.artifact == b"artifact"
+    assert stored_decisions == ["rl_shadow"]
+
+
+def test_promotion_requires_benchmark_edge_and_seed_stability():
+    service = RlTrainingService()
+    service.settings = SimpleNamespace(
+        rl_min_validation_return_percent=0.0,
+        rl_min_excess_return_percent=0.0,
+        rl_min_profitable_seed_ratio=0.5,
+        rl_min_validation_profit_factor=1.05,
+        rl_min_validation_trades=5,
+        rl_max_validation_drawdown_percent=15.0,
+    )
+    strong = {
+        "return_percent": 4.0,
+        "excess_return_percent": 1.5,
+        "profitable_seed_ratio": 1.0,
+        "profit_factor": 1.3,
+        "trades": 12,
+        "max_drawdown_percent": 8.0,
+    }
+
+    assert service._passes_promotion(strong)
+    assert not service._passes_promotion({**strong, "excess_return_percent": -0.1})
+    assert not service._passes_promotion({**strong, "profitable_seed_ratio": 0.0})
+    assert "buy-and-hold" in service._promotion_reason({**strong, "excess_return_percent": -0.1})

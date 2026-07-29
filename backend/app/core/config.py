@@ -145,6 +145,11 @@ class Settings(BaseSettings):
     candle_dataset_target: int = 5_000
     rl_trainer_enabled: bool = True
     rl_gate_enabled: bool = True
+    rl_symbols_raw: str = Field(
+        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        validation_alias="RL_SYMBOLS",
+    )
+    rl_training_max_per_cycle: int = 1
     rl_training_timesteps: int = 20_000
     rl_training_limit: int = 5_000
     rl_min_training_candles: int = 2_000
@@ -154,6 +159,8 @@ class Settings(BaseSettings):
     rl_prediction_loop_seconds: int = 300
     rl_validation_percent: float = 25.0
     rl_min_validation_return_percent: float = 0.0
+    rl_min_excess_return_percent: float = 0.0
+    rl_min_profitable_seed_ratio: float = 0.5
     rl_min_validation_profit_factor: float = 1.05
     rl_min_validation_trades: int = 5
     rl_max_validation_drawdown_percent: float = 15.0
@@ -197,6 +204,10 @@ class Settings(BaseSettings):
             except ValueError:
                 continue
         return values or [7]
+
+    @property
+    def rl_symbols(self) -> list[str]:
+        return _parse_csv(self.rl_symbols_raw) or self.candle_ingest_symbols
 
 
 @lru_cache

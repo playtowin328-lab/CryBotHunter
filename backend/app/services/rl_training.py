@@ -54,7 +54,7 @@ class RlTrainingService:
             created_at = created_at.replace(tzinfo=timezone.utc)
         retry_hours = (
             self.settings.rl_rejected_retry_hours
-            if latest.status == "REJECTED"
+            if latest.status in {"REJECTED", "SHADOW"}
             else self.settings.rl_refresh_hours
         )
         return datetime.now(timezone.utc) - created_at >= timedelta(hours=max(float(retry_hours), 1.0))
@@ -74,6 +74,21 @@ class RlTrainingService:
             await db.execute(
                 select(RlModel)
                 .where(RlModel.symbol == symbol, RlModel.timeframe == timeframe, RlModel.is_active.is_(True))
+                .order_by(RlModel.created_at.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+
+    async def shadow_for(self, db: AsyncSession, symbol: str, timeframe: str) -> RlModel | None:
+        return (
+            await db.execute(
+                select(RlModel)
+                .where(
+                    RlModel.symbol == symbol,
+                    RlModel.timeframe == timeframe,
+                    RlModel.status == "SHADOW",
+                    RlModel.is_active.is_(False),
+                )
                 .order_by(RlModel.created_at.desc())
                 .limit(1)
             )
@@ -114,11 +129,16 @@ class RlTrainingService:
                 .where(RlModel.symbol == symbol, RlModel.timeframe == timeframe, RlModel.is_active.is_(True))
                 .values(is_active=False, status="RETIRED")
             )
+        await db.execute(
+            update(RlModel)
+            .where(RlModel.symbol == symbol, RlModel.timeframe == timeframe, RlModel.status == "SHADOW")
+            .values(is_active=False, status="REJECTED")
+        )
         record = RlModel(
             symbol=symbol,
             timeframe=timeframe,
             algorithm="PPO",
-            status="ACTIVE" if promoted else "REJECTED",
+            status="ACTIVE" if promoted else "SHADOW",
             is_active=promoted,
             training_candles=len(train_frame),
             validation_candles=len(validation_frame),
@@ -128,8 +148,13 @@ class RlTrainingService:
         )
         db.add(record)
         await db.flush()
-        if promoted:
-            self._store_decision(db, record, best_model, frame)
+        self._store_decision(
+            db,
+            record,
+            best_model,
+            frame,
+            agent_name="rl_policy" if promoted else "rl_shadow",
+        )
         await db.commit()
         await db.refresh(record)
         return record
@@ -191,6 +216,11 @@ class RlTrainingService:
                 "training_seconds": round(perf_counter() - started, 2),
                 "timesteps_per_seed": max(int(self.settings.rl_training_timesteps), 1_000),
                 "seeds_evaluated": len(candidate_summaries),
+                "profitable_seed_ratio": round(
+                    sum(1 for item in candidate_summaries if float(item["return_percent"]) > 0)
+                    / max(len(candidate_summaries), 1),
+                    4,
+                ),
                 "candidates": candidate_summaries,
             }
         )
@@ -201,18 +231,32 @@ class RlTrainingService:
             raise RlTrainingInterrupted("RL training interrupted by shutdown request")
 
     async def publish_active_decision(self, db: AsyncSession, symbol: str, timeframe: str = "1h") -> AgentDecision | None:
-        model_record = await self.active_for(db, symbol, timeframe)
-        if not model_record or not model_record.artifact:
-            return None
+        active, _ = await self.publish_decisions(db, symbol, timeframe)
+        return active
+
+    async def publish_decisions(
+        self,
+        db: AsyncSession,
+        symbol: str,
+        timeframe: str = "1h",
+    ) -> tuple[AgentDecision | None, AgentDecision | None]:
+        active_record = await self.active_for(db, symbol, timeframe)
+        shadow_record = await self.shadow_for(db, symbol, timeframe)
+        records = [record for record in (active_record, shadow_record) if record and record.artifact]
+        if not records:
+            return None, None
         await self.history.ingest(db, symbol, timeframe, limit=300)
         candles = await self.history.load(db, symbol, timeframe, limit=300, source="ccxt")
         frame = build_feature_frame(candles)
         if len(frame) < 100:
-            return None
-        model = self._deserialize(model_record.artifact)
-        decision = self._store_decision(db, model_record, model, frame)
+            return None, None
+        decisions: dict[str, AgentDecision] = {}
+        for record in records:
+            agent_name = "rl_policy" if record.is_active else "rl_shadow"
+            model = self._deserialize(record.artifact)
+            decisions[agent_name] = self._store_decision(db, record, model, frame, agent_name=agent_name)
         await db.commit()
-        return decision
+        return decisions.get("rl_policy"), decisions.get("rl_shadow")
 
     def _split(self, frame):
         percent = min(max(self.settings.rl_validation_percent, 10.0), 40.0)
@@ -244,6 +288,8 @@ class RlTrainingService:
     def _passes_promotion(self, metrics: dict) -> bool:
         return (
             float(metrics["return_percent"]) >= self.settings.rl_min_validation_return_percent
+            and float(metrics.get("excess_return_percent", 0.0)) >= self.settings.rl_min_excess_return_percent
+            and float(metrics.get("profitable_seed_ratio", 0.0)) >= self.settings.rl_min_profitable_seed_ratio
             and float(metrics["profit_factor"]) >= self.settings.rl_min_validation_profit_factor
             and int(metrics["trades"]) >= self.settings.rl_min_validation_trades
             and float(metrics["max_drawdown_percent"]) <= self.settings.rl_max_validation_drawdown_percent
@@ -253,6 +299,10 @@ class RlTrainingService:
         reasons: list[str] = []
         if float(metrics["return_percent"]) < self.settings.rl_min_validation_return_percent:
             reasons.append("validation return below threshold")
+        if float(metrics.get("excess_return_percent", 0.0)) < self.settings.rl_min_excess_return_percent:
+            reasons.append("validation return underperformed buy-and-hold")
+        if float(metrics.get("profitable_seed_ratio", 0.0)) < self.settings.rl_min_profitable_seed_ratio:
+            reasons.append("too few profitable training seeds")
         if float(metrics["profit_factor"]) < self.settings.rl_min_validation_profit_factor:
             reasons.append("validation profit factor below threshold")
         if int(metrics["trades"]) < self.settings.rl_min_validation_trades:
@@ -266,22 +316,36 @@ class RlTrainingService:
         last = max(float(frame.iloc[-1]["close"]), 1e-12)
         return round((last / first - 1) * 100, 4)
 
-    def _store_decision(self, db: AsyncSession, record: RlModel, model: PPO, frame) -> AgentDecision:
+    def _store_decision(
+        self,
+        db: AsyncSession,
+        record: RlModel,
+        model: PPO,
+        frame,
+        *,
+        agent_name: str = "rl_policy",
+    ) -> AgentDecision:
         observation = latest_observation(frame)
         action, _ = model.predict(observation, deterministic=True)
         action_index = int(action)
         confidence = self._confidence(model, observation, action_index)
         decision = AgentDecision(
-            agent_name="rl_policy",
+            agent_name=agent_name,
             symbol=record.symbol,
             action=ACTION_NAMES[action_index],
             confidence=confidence,
-            rationale=f"Promoted PPO model #{record.id} evaluated current real-market features",
+            rationale=(
+                f"Promoted PPO model #{record.id} evaluated current real-market features"
+                if agent_name == "rl_policy"
+                else f"Shadow PPO model #{record.id} evaluated features without trading authority"
+            ),
             context={
                 "model_id": record.id,
                 "algorithm": record.algorithm,
                 "timeframe": record.timeframe,
                 "market_data_source": "ccxt",
+                "shadow": agent_name == "rl_shadow",
+                "trading_authority": agent_name == "rl_policy",
                 "validation": record.metrics,
             },
         )

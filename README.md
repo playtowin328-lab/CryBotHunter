@@ -226,6 +226,8 @@ MARKET_SCAN_CONCURRENCY=3
 CANDLE_INGEST_TIMEFRAMES=1h
 RL_TRAINER_ENABLED=true
 RL_GATE_ENABLED=true
+RL_SYMBOLS=BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT
+RL_TRAINING_MAX_PER_CYCLE=1
 RL_TRAINING_TIMESTEPS=20000
 RL_TRAINING_LIMIT=5000
 RL_MIN_TRAINING_CANDLES=2000
@@ -240,6 +242,8 @@ SAFETY_RETRY_INITIAL_SECONDS=2
 SAFETY_RETRY_MAX_SECONDS=30
 RL_VALIDATION_PERCENT=25
 RL_MIN_VALIDATION_RETURN_PERCENT=0
+RL_MIN_EXCESS_RETURN_PERCENT=0
+RL_MIN_PROFITABLE_SEED_RATIO=0.5
 RL_MIN_VALIDATION_PROFIT_FACTOR=1.05
 RL_MIN_VALIDATION_TRADES=5
 RL_MAX_VALIDATION_DRAWDOWN_PERCENT=15
@@ -250,7 +254,9 @@ RL_WAIT_RISK_MULTIPLIER=0.5
 
 The RL service needs no Binance API key because OHLCV is public. Set its Railway Config File to `/backend/railway.rl.toml`; this selects `Dockerfile.rl`. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
 
-PPO training runs outside the asyncio event loop, so `rl-worker` keeps publishing heartbeat updates while PyTorch is busy. Worker status reports expose the current pair, progress, and cycle totals; rejected candidates wait `RL_REJECTED_RETRY_HOURS` before training again instead of repeating on nearly identical candles every prediction cycle.
+PPO training runs outside the asyncio event loop, so `rl-worker` keeps publishing heartbeat updates while PyTorch is busy. `RL_SYMBOLS` defines the RL universe independently from the market scanner, while `RL_TRAINING_MAX_PER_CYCLE` limits heavy training attempts and lets missing pairs enter the queue gradually. Worker status reports expose the current pair, progress, active and shadow decisions, and deferred training totals.
+
+Models that pass validation become `ACTIVE` and may participate in the RL gate. Promotion also requires the selected policy to match or beat buy-and-hold by `RL_MIN_EXCESS_RETURN_PERCENT` and a configurable share of seeds to be profitable (`RL_MIN_PROFITABLE_SEED_RATIO`). Models that miss a promotion threshold become `SHADOW`: they continue publishing auditable `rl_shadow` decisions but have no trading authority. A newer shadow attempt supersedes the previous one, and only promoted `rl_policy` decisions can block or confirm a trade. The dashboard reports active pair coverage separately from the complete experiment history, so values such as `5 active pairs / 512 experiments` are never presented as `5 of 512 pairs`.
 
 Only the `backend` and `frontend` services need public domains. Worker services should remain private. The web process runs Alembic migrations by default; background workers skip migrations to avoid concurrent schema upgrades. Override this only with an explicit `RUN_MIGRATIONS=true`.
 
