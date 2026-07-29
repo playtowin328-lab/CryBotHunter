@@ -105,9 +105,16 @@ class Settings(BaseSettings):
     loss_cooldown_min_loss: float = 0.0
     paper_exploration_enabled: bool = False
     paper_exploration_min_score: int = 65
-    paper_exploration_risk_percent: float = 0.25
+    paper_exploration_risk_percent: float = 0.15
+    paper_exploration_max_risk_percent: float = 0.15
     paper_exploration_max_positions: int = 5
+    paper_exploration_recovery_slots: int = 2
+    paper_exploration_max_per_cycle: int = 1
+    paper_exploration_min_directional_votes: int = 5
+    paper_exploration_min_vote_margin: int = 2
     paper_exploration_cooldown_minutes: int = 240
+    learning_progress_target_trades: int = 30
+    learning_progress_target_observations: int = 100
     strategy_optimizer_apply_enabled: bool = True
     strategy_optimizer_min_profit_factor: float = 1.05
     strategy_optimizer_min_trades: int = 3
