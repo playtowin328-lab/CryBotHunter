@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, Callable
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.entities import TelegramOutboxMessage, WorkerHeartbeat
 from app.services.exchange import ExchangeClient
+from app.services.heartbeat import worker_is_healthy, worker_stale_seconds
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class WorkerHealth:
     status: str
     age_seconds: int
     healthy: bool
+    detail: dict = field(default_factory=dict)
+    stale_after_seconds: int = 180
 
 
 @dataclass(frozen=True)
@@ -115,15 +118,19 @@ class SystemHealthService:
                 await db.execute(select(WorkerHeartbeat).order_by(WorkerHeartbeat.worker_name.asc()))
             ).scalars().all()
             stale_seconds = max(int(self.settings.worker_heartbeat_stale_seconds), 60)
-            workers = tuple(
-                WorkerHealth(
-                    name=item.worker_name,
-                    status=item.status,
-                    age_seconds=max(int((now - _aware(item.last_seen_at)).total_seconds()), 0),
-                    healthy=(
-                        max(int((now - _aware(item.last_seen_at)).total_seconds()), 0) <= stale_seconds
-                        and item.status in {"OK", "PAUSED", "DISABLED"}
-                    ),
+            startup_grace_seconds = int(
+                getattr(self.settings, "worker_heartbeat_startup_grace_seconds", 600)
+            )
+            long_task_grace_seconds = int(
+                getattr(self.settings, "worker_heartbeat_long_task_grace_seconds", 900)
+            )
+            workers: tuple[WorkerHealth, ...] = tuple(
+                self._worker_health(
+                    item,
+                    now=now,
+                    stale_seconds=stale_seconds,
+                    startup_grace_seconds=startup_grace_seconds,
+                    long_task_grace_seconds=long_task_grace_seconds,
                 )
                 for item in rows
             )
@@ -136,6 +143,40 @@ class SystemHealthService:
                 0,
                 (),
             )
+
+    def _worker_health(
+        self,
+        item: WorkerHeartbeat,
+        *,
+        now: datetime,
+        stale_seconds: int,
+        startup_grace_seconds: int,
+        long_task_grace_seconds: int,
+    ) -> WorkerHealth:
+        detail = getattr(item, "detail", None) or {}
+        age_seconds = max(int((now - _aware(item.last_seen_at)).total_seconds()), 0)
+        stale_after_seconds = worker_stale_seconds(
+            base_seconds=stale_seconds,
+            status=item.status,
+            detail=detail,
+            startup_grace_seconds=startup_grace_seconds,
+            long_task_grace_seconds=long_task_grace_seconds,
+        )
+        return WorkerHealth(
+            name=item.worker_name,
+            status=item.status,
+            age_seconds=age_seconds,
+            healthy=worker_is_healthy(
+                status=item.status,
+                age_seconds=age_seconds,
+                base_seconds=stale_seconds,
+                detail=detail,
+                startup_grace_seconds=startup_grace_seconds,
+                long_task_grace_seconds=long_task_grace_seconds,
+            ),
+            detail=detail,
+            stale_after_seconds=stale_after_seconds,
+        )
 
     async def _redis_health(self) -> tuple[ComponentHealth, bool, str | None]:
         started = perf_counter()
