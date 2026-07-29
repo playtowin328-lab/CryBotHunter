@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     worker_heartbeat_enabled: bool = True
     worker_heartbeat_interval_seconds: int = 30
     worker_heartbeat_stale_seconds: int = 180
+    worker_heartbeat_startup_grace_seconds: int = 600
+    worker_heartbeat_long_task_grace_seconds: int = 900
     trader_loop_seconds: int = 60
     llm_provider: str = "none"
     openai_api_key: str | None = None
@@ -148,6 +150,7 @@ class Settings(BaseSettings):
     rl_min_training_candles: int = 2_000
     rl_training_seeds_raw: str = Field(default="7,29", validation_alias="RL_TRAINING_SEEDS")
     rl_refresh_hours: float = 24.0
+    rl_rejected_retry_hours: float = 6.0
     rl_prediction_loop_seconds: int = 300
     rl_validation_percent: float = 25.0
     rl_min_validation_return_percent: float = 0.0

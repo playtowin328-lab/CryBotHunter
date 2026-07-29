@@ -153,10 +153,12 @@ def test_worker_heartbeat_alert_is_readable_and_escaped():
         status="ERROR",
         age_seconds=205,
         detail={"error": "HTTP <timeout>"},
+        stale_after_seconds=180,
     )
 
     assert "trader-worker" in report
     assert "3 мин 25 сек" in report
+    assert "Порог тревоги" in report
     assert "HTTP &lt;timeout&gt;" in report
     assert report.count("<b>") == report.count("</b>")
 

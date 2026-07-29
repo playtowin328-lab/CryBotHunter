@@ -76,6 +76,8 @@ TELEGRAM_DAILY_REPORT_MINUTE_UTC=0
 WORKER_HEARTBEAT_ENABLED=true
 WORKER_HEARTBEAT_INTERVAL_SECONDS=30
 WORKER_HEARTBEAT_STALE_SECONDS=180
+WORKER_HEARTBEAT_STARTUP_GRACE_SECONDS=600
+WORKER_HEARTBEAT_LONG_TASK_GRACE_SECONDS=900
 TRADER_LOOP_SECONDS=60
 LLM_PROVIDER=none
 OPENAI_API_KEY=
@@ -229,6 +231,7 @@ RL_TRAINING_LIMIT=5000
 RL_MIN_TRAINING_CANDLES=2000
 RL_TRAINING_SEEDS=7,29
 RL_REFRESH_HOURS=24
+RL_REJECTED_RETRY_HOURS=6
 RL_PREDICTION_LOOP_SECONDS=300
 SAFETY_CHECK_ENABLED=true
 SAFETY_CHECK_SYMBOL=BTC/USDT
@@ -246,6 +249,8 @@ RL_WAIT_RISK_MULTIPLIER=0.5
 ```
 
 The RL service needs no Binance API key because OHLCV is public. Set its Railway Config File to `/backend/railway.rl.toml`; this selects `Dockerfile.rl`. Deploy it in the same Railway region that can reach Binance. Stable Baselines3 and CPU-only PyTorch are installed only by `Dockerfile.rl`; the web, trader, and Telegram images remain smaller.
+
+PPO training runs outside the asyncio event loop, so `rl-worker` keeps publishing heartbeat updates while PyTorch is busy. Worker status reports expose the current pair, progress, and cycle totals; rejected candidates wait `RL_REJECTED_RETRY_HOURS` before training again instead of repeating on nearly identical candles every prediction cycle.
 
 Only the `backend` and `frontend` services need public domains. Worker services should remain private. The web process runs Alembic migrations by default; background workers skip migrations to avoid concurrent schema upgrades. Override this only with an explicit `RUN_MIGRATIONS=true`.
 

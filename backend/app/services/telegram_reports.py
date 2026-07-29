@@ -280,23 +280,27 @@ def format_worker_heartbeat_event(
     status: str,
     age_seconds: int,
     detail: dict | None = None,
+    stale_after_seconds: int | None = None,
 ) -> str:
     recovered = kind.upper() == "RECOVERED"
-    heading = "✅ WORKER ВОССТАНОВЛЕН" if recovered else "🚨 WORKER НЕ ОТВЕЧАЕТ"
+    heading = "✅ HEARTBEAT ВОССТАНОВЛЕН" if recovered else "🚨 НЕТ HEARTBEAT ОТ WORKER"
     age = _duration_seconds(age_seconds)
-    detail_text = ", ".join(f"{key}={value}" for key, value in (detail or {}).items()) or "нет"
+    stale_after = max(int(stale_after_seconds or 180), 60)
+    status_text = worker_status_label(status)
+    task_text = worker_detail_summary(detail or {})
     action = (
-        "Heartbeat снова поступает; worker вернулся в штатный мониторинг."
+        "Worker снова подтверждает работу. Повторный аварийный сигнал придёт только при новой потере heartbeat."
         if recovered
-        else "Новые циклы этого worker могут не выполняться. Проверь контейнер и последние Railway-логи."
+        else "Heartbeat отсутствует дольше допустимого времени. Проверь состояние сервиса и Deploy Logs в Railway."
     )
     return (
         f"<b>{heading}</b>\n"
         f"<code>{_html(worker_name)}</code>\n\n"
         "<b>Состояние</b>\n"
-        f"├ Последний статус: <code>{_html(status)}</code>\n"
-        f"├ Возраст heartbeat: <code>{age}</code>\n"
-        f"└ Детали: {_html(detail_text)}\n\n"
+        f"├ Этап: <code>{_html(status_text)}</code>\n"
+        f"├ Последнее подтверждение: <code>{age} назад</code>\n"
+        f"├ Порог тревоги: <code>{_duration_seconds(stale_after)}</code>\n"
+        f"└ Задача: {_html(task_text)}\n\n"
         f"<i>{action}</i>"
     )
 
@@ -308,7 +312,13 @@ def format_system_health(snapshot: SystemHealthSnapshot) -> str:
     worker_lines = [
         (
             f"{'🟢' if item.healthy else '🔴'} {_html(item.name)} · "
-            f"<code>{_html(item.status)}</code> · {_duration_seconds(item.age_seconds)}"
+            f"<code>{_html(worker_status_label(item.status))}</code> · "
+            f"{_duration_seconds(item.age_seconds)} назад"
+            + (
+                f"\n   {_html(worker_detail_summary(item.detail))}"
+                if item.detail
+                else ""
+            )
         )
         for item in snapshot.workers
     ]
@@ -553,6 +563,56 @@ def _duration_seconds(seconds: int) -> str:
     if minutes:
         return f"{minutes} мин {remaining} сек"
     return f"{remaining} сек"
+
+
+def worker_status_label(status: str) -> str:
+    labels = {
+        "STARTING": "запускается",
+        "RUNNING": "выполняет цикл",
+        "TRAINING": "обучает RL-модель",
+        "IDLE": "ожидает следующий цикл",
+        "OK": "работает штатно",
+        "PAUSED": "на паузе",
+        "DISABLED": "отключён настройкой",
+        "DEGRADED": "цикл завершён с ошибками",
+        "ERROR": "ошибка",
+    }
+    normalized = str(status or "UNKNOWN").upper()
+    return labels.get(normalized, normalized)
+
+
+def worker_detail_summary(detail: dict) -> str:
+    if not detail:
+        return "дополнительных данных нет"
+    stage_labels = {
+        "startup": "инициализация процесса",
+        "cycle_start": "подготовка нового цикла",
+        "checking_model": "проверка свежести модели",
+        "ppo_training": "PPO-обучение и validation",
+        "publishing_decision": "расчёт свежего RL-решения",
+        "cycle_complete": "цикл завершён",
+        "cycle_failed": "цикл аварийно завершён",
+    }
+    parts: list[str] = []
+    stage = str(detail.get("stage") or "")
+    if stage:
+        parts.append(stage_labels.get(stage, stage))
+    if detail.get("pair"):
+        parts.append(str(detail["pair"]))
+    if detail.get("progress"):
+        parts.append(f"прогресс {detail['progress']}")
+    if stage == "cycle_complete":
+        parts.append(
+            "обучено {trained}, принято {promoted}, решений {decisions}, ошибок {errors}".format(
+                trained=int(detail.get("trained", 0)),
+                promoted=int(detail.get("promoted", 0)),
+                decisions=int(detail.get("decisions", 0)),
+                errors=int(detail.get("errors", 0)),
+            )
+        )
+    if detail.get("error"):
+        parts.append(f"ошибка {detail['error']}")
+    return " · ".join(parts) or "служебный heartbeat"
 
 
 def _close_explanation(side: str, exit_price: float, entry_price: float, reason: str) -> str:
