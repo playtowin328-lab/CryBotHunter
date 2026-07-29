@@ -6,6 +6,8 @@ from typing import Iterable
 
 from app.models.entities import Position
 from app.schemas.dto import PositionUpdateOut, TradingDecision, TradingRunOut, TradingTickOut
+from app.services.system_health import ComponentHealth, SystemHealthSnapshot
+from app.services.telegram_daily import DailyReportSnapshot
 
 
 EXIT_REASON_LABELS = {
@@ -25,6 +27,10 @@ DECISION_REASON_LABELS = {
     "symbol exposure limit reached": "достигнут лимит нагрузки по инструменту",
     "paper exploration position limit reached": "достигнут лимит исследовательских paper-позиций",
     "paper exploration cooldown is active": "для инструмента ещё действует пауза между тестовыми входами",
+    "loss streak limit reached": "достигнут лимит серии убытков",
+    "win rate below guard threshold": "доля прибыльных сделок ниже защитного порога",
+    "recent total profit below guard threshold": "результат последних сделок ниже защитного порога",
+    "performance guard recovery position limit reached": "в режиме восстановления разрешена только одна позиция",
 }
 
 
@@ -295,6 +301,92 @@ def format_worker_heartbeat_event(
     )
 
 
+def format_system_health(snapshot: SystemHealthSnapshot) -> str:
+    overall_icon = "🟢" if snapshot.healthy else "🔴"
+    overall = "СИСТЕМА ИСПРАВНА" if snapshot.healthy else "ТРЕБУЕТ ВНИМАНИЯ"
+    mode = "PAPER · виртуальные средства" if snapshot.paper_trading else "LIVE · реальные ордера"
+    worker_lines = [
+        (
+            f"{'🟢' if item.healthy else '🔴'} {_html(item.name)} · "
+            f"<code>{_html(item.status)}</code> · {_duration_seconds(item.age_seconds)}"
+        )
+        for item in snapshot.workers
+    ]
+    if not worker_lines:
+        worker_lines.append("🟡 Heartbeat-данных пока нет")
+    pause_reason = _html(snapshot.pause_reason or "нет")
+    return (
+        f"<b>{overall_icon} ДИАГНОСТИКА · {overall}</b>\n"
+        f"<code>{mode}</code>\n\n"
+        "<b>Зависимости</b>\n"
+        f"{_component_line(snapshot.database)}\n"
+        f"{_component_line(snapshot.redis)}\n"
+        f"{_component_line(snapshot.exchange)}\n\n"
+        "<b>Торговая безопасность</b>\n"
+        f"├ Новые входы: <code>{'ПАУЗА' if snapshot.trading_paused else 'РАЗРЕШЕНЫ'}</code>\n"
+        f"└ Причина паузы: {pause_reason}\n\n"
+        "<b>Очередь Telegram</b>\n"
+        f"├ Ожидают отправки: <code>{snapshot.pending_notifications}</code>\n"
+        f"└ Окончательно не доставлены: <code>{snapshot.failed_notifications}</code>\n\n"
+        "<b>Worker heartbeat</b>\n"
+        + "\n".join(worker_lines)
+        + f"\n\n<i>Проверено {snapshot.generated_at:%d.%m.%Y %H:%M:%S} UTC</i>"
+    )
+
+
+def format_daily_report(snapshot: DailyReportSnapshot) -> str:
+    result_icon = "🟢" if snapshot.pnl_day >= 0 else "🔴"
+    mode = "PAPER · виртуальные средства" if snapshot.paper_trading else "LIVE · реальные ордера"
+    worker_state = f"{snapshot.healthy_workers}/{snapshot.total_workers} штатно"
+    if snapshot.unhealthy_workers:
+        worker_state += f"; внимание: {', '.join(snapshot.unhealthy_workers)}"
+    position_lines = [
+        (
+            f"{'🟢' if item.pnl >= 0 else '🔴'} <b>{_html(item.symbol)}</b> · "
+            f"{_html(_side_label(item.side))}\n"
+            f"   PnL <b>{item.pnl:+.2f} USDT</b> · цена <code>{_price(item.current_price)}</code>"
+        )
+        for item in snapshot.positions[:8]
+    ]
+    if not position_lines:
+        position_lines.append("Открытых позиций нет.")
+    if len(snapshot.positions) > 8:
+        position_lines.append(f"…и ещё {len(snapshot.positions) - 8}")
+    return (
+        f"<b>{result_icon} ЕЖЕДНЕВНЫЙ ОТЧЁТ · CRYBOTHUNTER</b>\n"
+        f"<code>{mode}</code>\n\n"
+        "<b>Результат портфеля</b>\n"
+        f"├ PnL за день: <b>{snapshot.pnl_day:+.2f} USDT</b>\n"
+        f"├ PnL за 7 дней: <code>{snapshot.pnl_week:+.2f} USDT</code>\n"
+        f"├ Общий PnL: <code>{snapshot.total_pnl:+.2f} USDT</code>\n"
+        f"├ Открытый PnL: <code>{snapshot.open_pnl:+.2f} USDT</code>\n"
+        f"├ Закрыто сегодня: <code>{snapshot.closed_today}</code>\n"
+        f"├ Всего закрытых сделок: <code>{snapshot.trades_count}</code>\n"
+        f"└ Доля прибыльных: <code>{snapshot.win_rate:.2f}%</code>\n\n"
+        "<b>Открытые позиции</b>\n"
+        + "\n".join(position_lines)
+        + "\n\n<b>Обучение</b>\n"
+        f"├ Правил из сделок: <code>{snapshot.learning_rules}</code>\n"
+        f"├ Наблюдений: <code>{snapshot.learning_observations}</code>\n"
+        f"└ Активных RL-моделей: <code>{snapshot.active_rl_models}</code>\n\n"
+        "<b>Надёжность</b>\n"
+        f"├ Воркеры: <code>{_html(worker_state)}</code>\n"
+        f"├ Telegram в очереди: <code>{snapshot.pending_notifications}</code>\n"
+        f"└ Ошибок доставки: <code>{snapshot.failed_notifications}</code>\n\n"
+        f"<i>Снимок на {snapshot.generated_at:%d.%m.%Y %H:%M} UTC. "
+        "PnL за день включает текущий плавающий результат открытых позиций.</i>"
+    )
+
+
+def _component_line(component: ComponentHealth) -> str:
+    icon = "🟢" if component.ok else "🔴"
+    latency = f"{component.latency_ms} мс" if component.latency_ms is not None else "нет данных"
+    return (
+        f"{icon} <b>{_html(component.name)}</b> · <code>{latency}</code>\n"
+        f"   {_html(component.detail)}"
+    )
+
+
 def human_reason(reason: str) -> str:
     normalized = reason.strip()
     if normalized in DECISION_REASON_LABELS:
@@ -308,6 +400,9 @@ def human_reason(reason: str) -> str:
         "для исследовательского входа сохранены лимиты риска, ликвидности и экспозиции",
     )
     translated = translated.replace("paper exploration from WAIT", "исследовательский вход из сигнала WAIT")
+    translated = translated.replace("recovery probe after", "пробный вход после паузы:")
+    translated = translated.replace("recovery cooldown until", "режим восстановления начнётся после")
+    translated = translated.replace("risk reduced to", "риск снижен до")
     return translated or "причина не указана"
 
 

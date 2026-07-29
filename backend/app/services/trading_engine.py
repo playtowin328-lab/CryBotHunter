@@ -19,7 +19,7 @@ from app.services.learning import LearningService
 from app.services.market_quality import MarketQualityGate
 from app.services.market_scanner import MarketScanner
 from app.services.optimizer import StrategyOptimizerService
-from app.services.performance_guard import PerformanceGuardService
+from app.services.performance_guard import PerformanceGuardReport, PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.pretrade_quality import PreTradeQualityGate
 from app.services.risk_manager import DrawdownAssessment, RiskManager, RiskSettings
@@ -119,7 +119,7 @@ class TradingEngine:
             signal, exploration = self._paper_exploration_signal(coin, original_signal)
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
-            trade_settings = settings
+            trade_settings = self._guard_recovery_settings(settings, guard)
             optimizer_reason = ""
 
             if exploration:
@@ -141,6 +141,8 @@ class TradingEngine:
 
             if coin.symbol in open_symbols:
                 accepted, reason = False, "position already open for symbol"
+            elif self._guard_recovery_position_limit_reached(guard, open_count):
+                accepted, reason = False, "performance guard recovery position limit reached"
             elif exploration and open_count >= max(int(self.settings.paper_exploration_max_positions), 1):
                 accepted, reason = False, "paper exploration position limit reached"
             elif exploration and not await self._paper_exploration_cooldown_elapsed(db, coin.symbol):
@@ -151,6 +153,8 @@ class TradingEngine:
                     reason = f"{reason}; {optimizer_reason}"
                 if accepted and exploration:
                     reason = f"{reason}; paper exploration from WAIT"
+                if accepted and guard.recovery_mode:
+                    reason = f"{reason}; {guard.reason}"
             if accepted:
                 cooldown = await self.cooldown_guard.assess(db, coin.symbol)
                 if not cooldown.allowed:
@@ -220,6 +224,8 @@ class TradingEngine:
                 candidate_notional = 0.0
             if accepted and exploration:
                 reason = "risk accepted; paper exploration from WAIT; paper exploration keeps hard risk and market-quality gates"
+                if guard.recovery_mode:
+                    reason = f"{reason}; {guard.reason}"
             if accepted and not exploration:
                 committee = await self._committee_gate(db, coin, signal.signal)
                 if committee and not self._committee_allows_signal(committee, signal.signal):
@@ -502,6 +508,25 @@ class TradingEngine:
         if paper_exploration and self.settings.paper_trading:
             return max(configured, max(int(self.settings.paper_exploration_max_positions), 1))
         return configured
+
+    def _guard_recovery_settings(
+        self,
+        settings: RiskSettings,
+        guard: PerformanceGuardReport,
+    ) -> RiskSettings:
+        if not guard.recovery_mode:
+            return settings
+        return replace(
+            settings,
+            risk_percent=round(float(settings.risk_percent) * float(guard.risk_multiplier), 4),
+        )
+
+    def _guard_recovery_position_limit_reached(
+        self,
+        guard: PerformanceGuardReport,
+        open_count: int,
+    ) -> bool:
+        return guard.recovery_mode and open_count >= max(int(self.settings.guard_recovery_max_positions), 1)
 
     def _exit_plan(self, entry_price: float, atr: float, side: str, settings: RiskSettings) -> tuple[float, float, float]:
         plan = self.risk.calculate_dynamic_exits(

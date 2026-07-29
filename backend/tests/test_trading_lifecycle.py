@@ -4,6 +4,7 @@ import pytest
 
 from app.models.entities import Position
 from app.schemas.dto import AgentAnalysisOut, AgentDecisionOut, MarketCoin, StrategySignal
+from app.services.performance_guard import PerformanceGuardReport
 from app.services.risk_manager import RiskSettings
 from app.services.trading_engine import TradingEngine
 
@@ -251,6 +252,27 @@ def test_trading_engine_rebases_risk_settings_to_actual_balance():
     updated = engine._settings_with_balance(risk_settings(), 2500)
 
     assert updated.balance == 2500
+
+
+def test_performance_guard_recovery_reduces_risk_and_caps_open_positions():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(guard_recovery_max_positions=1)
+    guard = PerformanceGuardReport(
+        allowed=True,
+        reason="recovery probe",
+        trades_checked=5,
+        win_rate=20,
+        loss_streak=3,
+        total_profit=-10,
+        recovery_mode=True,
+        risk_multiplier=0.25,
+    )
+
+    updated = engine._guard_recovery_settings(risk_settings(), guard)
+
+    assert updated.risk_percent == 0.25
+    assert engine._guard_recovery_position_limit_reached(guard, open_count=0) is False
+    assert engine._guard_recovery_position_limit_reached(guard, open_count=1) is True
 
 
 def test_paper_exploration_converts_strong_wait_to_small_test_direction():

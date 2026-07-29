@@ -160,6 +160,9 @@ class PerformanceGuardOut(BaseModel):
     win_rate: float
     loss_streak: int
     total_profit: float
+    recovery_mode: bool = False
+    risk_multiplier: float = 1.0
+    retry_at: datetime | None = None
 
 
 class BacktestOut(BaseModel):
