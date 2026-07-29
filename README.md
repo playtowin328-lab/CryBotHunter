@@ -70,6 +70,9 @@ TELEGRAM_CYCLE_REPORTS_ENABLED=true
 TELEGRAM_CYCLE_REPORT_INTERVAL_MINUTES=15
 TELEGRAM_OUTBOX_ENABLED=true
 TELEGRAM_OUTBOX_RETRY_LIMIT=8
+TELEGRAM_DAILY_REPORT_ENABLED=true
+TELEGRAM_DAILY_REPORT_HOUR_UTC=18
+TELEGRAM_DAILY_REPORT_MINUTE_UTC=0
 WORKER_HEARTBEAT_ENABLED=true
 WORKER_HEARTBEAT_INTERVAL_SECONDS=30
 WORKER_HEARTBEAT_STALE_SECONDS=180
@@ -316,6 +319,8 @@ Supported commands:
 - Persists Telegram notifications in a deduplicated outbox, retries transient delivery failures with exponential backoff, and resumes partially delivered text/photo reports without duplicating the successful part.
 - Adds the latest 48 real Binance 1h candles, entry, current price, stop loss, and take profit to each position card when market data is available.
 - Records worker heartbeats and sends one alert when a worker becomes stale plus a recovery notice when it resumes; `/status` shows current worker and outbox health.
+- Provides Telegram `/health` diagnostics for PostgreSQL, Redis, Binance market data, the notification queue, and every worker heartbeat.
+- Sends one deduplicated daily Telegram portfolio report with a generated JPEG card (18:00 UTC by default), including PnL, positions, learning, workers, and delivery-queue health.
 - Returns an execution report for every manual scan: scanned, opened, skipped, and decision reasons.
 - Manages open positions through `/api/v1/trading/tick`: current price, floating PnL, stop loss, take profit, trailing stop, and close reasons.
 - Stores every execution attempt in `orders`, including status, filled amount, average price, fee, and paper slippage.
@@ -330,6 +335,7 @@ Supported commands:
 - Provides panic/resume controls through API and Telegram.
 - Provides deep health checks through `/health/deep`.
 - Blocks new entries through a performance guard when recent win rate, loss streak, or total profit falls below thresholds.
+- Automatically leaves a performance-guard deadlock after a cooldown by allowing one reduced-risk recovery position; a new loss starts the cooldown again.
 - Provides system status, sample backtest metrics, and Telegram test notification API.
 - Persists positions, trades, signals, settings, and logs in PostgreSQL and mirrors completed trades into asynchronous SQLite memory.
 - Exposes dashboard, market, logs, settings, positions, and trading endpoints.
