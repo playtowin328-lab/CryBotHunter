@@ -4,7 +4,7 @@ import logging
 from time import perf_counter
 
 from app.core.config import get_settings
-from app.db.session import AsyncSessionLocal, engine
+from app.db.session import AsyncSessionLocal, engine as database_engine
 from app.models.entities import LogEntry
 from app.safety_manager import SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.heartbeat import HeartbeatReporter
@@ -38,7 +38,7 @@ async def main() -> None:
     )
     await heartbeat.start()
     schema_ready = await wait_for_required_tables(
-        engine,
+        database_engine,
         ("trade_post_mortems", "shadow_trades"),
         heartbeat=heartbeat,
         shutdown=shutdown,

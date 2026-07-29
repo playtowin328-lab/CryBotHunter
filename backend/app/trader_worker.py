@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.security import decrypt_secret
-from app.db.session import AsyncSessionLocal, engine
+from app.db.session import AsyncSessionLocal, engine as database_engine
 from app.models.entities import LogEntry, UserSettings
 from app.safety_manager import SafetyCredentials, SafetyManager, ShutdownController, configure_stdout_logging
 from app.services.control import TradingControlService
@@ -44,7 +44,7 @@ async def main() -> None:
     logger.info("Trader worker started with loop=%ss", settings.trader_loop_seconds)
     await heartbeat.start()
     schema_ready = await wait_for_required_tables(
-        engine,
+        database_engine,
         ("trade_post_mortems", "shadow_trades"),
         heartbeat=heartbeat,
         shutdown=shutdown,
@@ -80,9 +80,9 @@ async def main() -> None:
                         else:
                             current_exchange = user_settings.exchange
                             exchange = ExchangeClient.from_user_settings(user_settings)
-                            engine = TradingEngine(exchange)
+                            trading_engine = TradingEngine(exchange)
                             reconciliation = OrderReconciliationService(exchange)
-                            tick = await engine.manage_open_positions(db)
+                            tick = await trading_engine.manage_open_positions(db)
                             await reconciliation.reconcile(db)
                             paused, reason = await control.is_paused()
                             if paused:
@@ -105,7 +105,11 @@ async def main() -> None:
                                     partial_take_profit_r=user_settings.partial_take_profit_r,
                                     partial_close_percent=user_settings.partial_close_percent,
                                 )
-                                run = await engine.run_once(db, risk_settings, timeframe=user_settings.scan_interval)
+                                run = await trading_engine.run_once(
+                                    db,
+                                    risk_settings,
+                                    timeframe=user_settings.scan_interval,
+                                )
                                 summary = _cycle_summary(run.scanned, run.opened, run.skipped, run.decisions, tick.closed)
                                 logger.info(summary)
                                 db.add(LogEntry(level="INFO", message=summary))
