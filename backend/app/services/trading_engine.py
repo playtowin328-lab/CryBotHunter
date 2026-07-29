@@ -183,7 +183,13 @@ class TradingEngine:
                 elif exploration:
                     reason = f"{reason}; {market_quality.reason}"
             if accepted:
-                quality = await self.quality_gate.assess(db, coin.symbol, timeframe, trade_settings)
+                quality = await self.quality_gate.assess(
+                    db,
+                    coin.symbol,
+                    timeframe,
+                    trade_settings,
+                    learning_probe=exploration,
+                )
                 if not quality.allowed:
                     accepted = False
                     reason = quality.reason
