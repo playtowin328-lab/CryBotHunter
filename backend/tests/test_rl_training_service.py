@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("stable_baselines3")
+
 import app.services.rl_training as rl_training_module
 from app.models.entities import RlModel
 from app.services.rl_training import RlTrainingService
