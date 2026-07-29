@@ -241,15 +241,22 @@ def _cycle_metrics(decisions: list) -> dict[str, int | str]:
 def _cycle_blocker(reason: str) -> str:
     normalized = str(reason or "").lower()
     markers = (
-        ("position already open", "POSITION_OPEN"),
+        ("position already open", "POSITION_ALREADY_OPEN"),
+        ("recovery position limit", "RECOVERY_POSITION_LIMIT"),
+        ("maximum open positions", "MAX_POSITIONS"),
+        ("per-cycle entry limit", "PAPER_LANE_CYCLE_LIMIT"),
+        ("paper exploration position limit", "PAPER_LANE_POSITION_LIMIT"),
         ("strategy wait", "STRATEGY_WAIT"),
-        ("pre-trade quality", "PRETRADE"),
+        ("performance guard", "PERFORMANCE_GUARD"),
+        ("signal score below", "LOW_SCORE"),
+        ("pre-trade quality", "PRETRADE_QUALITY"),
         ("market quality", "MARKET_QUALITY"),
         ("micro gate", "MICROSTRUCTURE"),
         ("committee rejected", "COMMITTEE"),
-        ("rl disagrees", "RL"),
+        ("rl disagrees", "RL_DISAGREEMENT"),
+        ("learning", "LEARNING_MEMORY"),
         ("cooldown", "COOLDOWN"),
-        ("position limit", "POSITION_LIMIT"),
+        ("same-side", "DIRECTIONAL_EXPOSURE"),
         ("exposure", "EXPOSURE"),
     )
     return next((code for marker, code in markers if marker in normalized), "OTHER")
