@@ -286,6 +286,33 @@ class LearningSummaryOut(BaseModel):
     total_wins: int
 
 
+class LearningInsightOut(BaseModel):
+    impact: Literal["PREFER", "WATCH", "CAUTION", "AVOID"]
+    scope: str
+    side: str
+    feature_key: str
+    feature_value: str
+    observations: int
+    wins: int
+    losses: int
+    win_rate: float
+    total_profit: float
+    effective_penalty: float
+    confidence: float
+    risk_level: str
+    explanation: str
+    last_reason: str | None = None
+
+
+class LearningInsightsOut(BaseModel):
+    learned_from_trades: int
+    rules_updated: int
+    strong_patterns: int
+    protective_patterns: int
+    favorable_patterns: int
+    insights: list[LearningInsightOut] = Field(default_factory=list)
+
+
 class ActionMessage(BaseModel):
     ok: bool
     message: str
@@ -298,6 +325,30 @@ class AgentDecisionOut(BaseModel):
     confidence: float
     rationale: str
     context: dict = Field(default_factory=dict)
+    created_at: datetime | None = None
+
+
+class AgentActivityItemOut(BaseModel):
+    agent_name: str
+    decisions: int
+    decisions_24h: int
+    average_confidence: float
+    directional_votes: int
+    approvals: int
+    blocks: int
+    waits: int
+    last_action: str
+    last_symbol: str
+    last_seen_at: datetime | None = None
+
+
+class AgentActivityOut(BaseModel):
+    total_decisions: int
+    decisions_24h: int
+    active_agents: int
+    committee_approvals: int
+    last_decision_at: datetime | None = None
+    agents: list[AgentActivityItemOut] = Field(default_factory=list)
 
 
 class LlmAdvice(BaseModel):
@@ -347,6 +398,7 @@ class PositionOut(BaseModel):
     highest_price: float
     lowest_price: float
     pnl: float
+    entry_context: dict = Field(default_factory=dict)
     status: str
     exit_reason: str | None = None
     entered_at: datetime
@@ -380,6 +432,65 @@ class LogOut(BaseModel):
     created_at: datetime
 
 
+class TradeHistoryItemOut(BaseModel):
+    id: int
+    symbol: str
+    side: str
+    entered_at: datetime | None = None
+    closed_at: datetime | None = None
+    entry_price: float
+    exit_price: float
+    pnl: float
+    return_percent: float
+    result: Literal["WIN", "LOSS", "BREAKEVEN"]
+    exit_reason: str | None = None
+    duration_minutes: int | None = None
+    confidence: float | None = None
+    consensus_score: float | None = None
+    signal_score: int | None = None
+    risk_percent: float | None = None
+    risk_reward_ratio: float | None = None
+    paper_exploration: bool = False
+    entry_reasons: list[str] = Field(default_factory=list)
+    decision_reason: str = ""
+
+
+class SymbolPerformanceOut(BaseModel):
+    symbol: str
+    trades: int
+    wins: int
+    losses: int
+    win_rate: float
+    total_pnl: float
+    average_pnl: float
+    profit_factor: float | None = None
+    expectancy: float
+
+
+class TradeAnalyticsOut(BaseModel):
+    closed_trades: int
+    open_positions: int
+    wins: int
+    losses: int
+    breakeven: int
+    win_rate: float
+    total_realized_pnl: float
+    open_pnl: float
+    net_pnl: float
+    gross_profit: float
+    gross_loss: float
+    profit_factor: float | None = None
+    expectancy: float
+    average_win: float
+    average_loss: float
+    best_trade: float
+    worst_trade: float
+    max_win_streak: int
+    max_loss_streak: int
+    by_symbol: list[SymbolPerformanceOut] = Field(default_factory=list)
+    recent_trades: list[TradeHistoryItemOut] = Field(default_factory=list)
+
+
 class DashboardOut(BaseModel):
     balance: float
     pnl_day: float
@@ -387,3 +498,4 @@ class DashboardOut(BaseModel):
     win_rate: float
     trades_count: int
     active_positions: list[PositionOut]
+    analytics: TradeAnalyticsOut

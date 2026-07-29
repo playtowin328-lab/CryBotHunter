@@ -136,6 +136,14 @@ def test_committee_gate_rejects_mismatch_or_low_consensus():
     assert not engine._committee_allows_signal(analysis("BUY", consensus_score=0.4), "BUY")
 
 
+def test_opportunity_ranking_prefers_tradeable_high_confidence_signal():
+    engine = TradingEngine()
+    buy = StrategySignal(symbol="BTC/USDT", signal="BUY", score=82, reasons=[])
+    wait = StrategySignal(symbol="BTC/USDT", signal="WAIT", score=99, reasons=[])
+
+    assert engine._opportunity_rank(coin(), buy) > engine._opportunity_rank(coin(), wait)
+
+
 def test_exposure_gate_rejects_overloaded_portfolio():
     engine = TradingEngine()
     accepted, reason, candidate = engine._exposure_gate(

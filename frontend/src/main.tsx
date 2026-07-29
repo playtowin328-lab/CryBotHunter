@@ -15,10 +15,15 @@ import {
   Terminal,
   XCircle
 } from "lucide-react";
-import { ActionMessage, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
+import { ActionMessage, AgentActivity, AgentAnalysis, AgentDecision, api, BacktestReport, Dashboard, HistoryBatchIngest, HistoryIngest, HistoryReadiness, LearningInsights, LearningRule, LearningSummary, LogEntry, MarketCoin, Order, PerformanceGuard, RlModel, StrategyOptimization, SystemStatus, TradeAnalytics, TradingRun, TradingTick, UserSettings, WalkForwardReport } from "./api/client";
 import "./styles.css";
 
 type View = "dashboard" | "market" | "agents" | "logs" | "settings";
+
+const TRADING_SYMBOLS = [
+  "BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT",
+  "DOGE/USDT", "LINK/USDT", "AVAX/USDT", "DOT/USDT", "LTC/USDT", "TRX/USDT"
+];
 
 function App() {
   const [view, setView] = React.useState<View>("dashboard");
@@ -110,13 +115,20 @@ function App() {
 function AgentsView() {
   const [analysis, setAnalysis] = React.useState<AgentAnalysis | null>(null);
   const [decisions, setDecisions] = React.useState<AgentDecision[]>([]);
+  const [activity, setActivity] = React.useState<AgentActivity | null>(null);
+  const [symbol, setSymbol] = React.useState("BTC/USDT");
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
   const load = React.useCallback(async () => {
     try {
       setError("");
-      setDecisions((await api.get("/agents/decisions")).data);
+      const [decisionResponse, activityResponse] = await Promise.all([
+        api.get<AgentDecision[]>("/agents/decisions?limit=50"),
+        api.get<AgentActivity>("/agents/activity")
+      ]);
+      setDecisions(decisionResponse.data);
+      setActivity(activityResponse.data);
     } catch (err) {
       setError(readError(err));
     }
@@ -128,8 +140,8 @@ function AgentsView() {
     try {
       setLoading(true);
       setError("");
-      const symbol = encodeURIComponent("BTC/USDT");
-      const { data } = await api.post<AgentAnalysis>(`/agents/analyze?symbol=${symbol}`);
+      const encodedSymbol = encodeURIComponent(symbol);
+      const { data } = await api.post<AgentAnalysis>(`/agents/analyze?symbol=${encodedSymbol}`);
       setAnalysis(data);
       await load();
     } catch (err) {
@@ -142,9 +154,20 @@ function AgentsView() {
   return (
     <section className="space-y-5">
       <Header title="AI-агенты" subtitle="Рыночные и риск-решения с полной историей проверок">
-        <button className="btn primary" onClick={analyze} disabled={loading}><Bot size={16} /> {loading ? "Анализирую" : "Анализ BTC"}</button>
+        <select className="agent-symbol-select" value={symbol} onChange={(event) => setSymbol(event.target.value)}>
+          {TRADING_SYMBOLS.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+        <button className="btn primary" onClick={analyze} disabled={loading}><Bot size={16} /> {loading ? "Анализирую" : `Анализ ${symbol}`}</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
+      <div className="metric-grid">
+        <Metric label="Всего решений агентов" value={String(activity?.total_decisions ?? 0)} />
+        <Metric label="Решений за 24 часа" value={String(activity?.decisions_24h ?? 0)} />
+        <Metric label="Активных агентов" value={String(activity?.active_agents ?? 0)} />
+        <Metric label="Одобрений комитета" value={String(activity?.committee_approvals ?? 0)} tone={(activity?.committee_approvals ?? 0) > 0 ? "good" : undefined} />
+        <Metric label="Последняя активность" value={activity?.last_decision_at ? new Date(activity.last_decision_at).toLocaleString("ru-RU") : "Нет данных"} />
+      </div>
+      <AgentActivityTable activity={activity} />
       {analysis && (
         <div className="status-strip">
           <StatusItem label="Итоговое действие" value={translateAction(analysis.final_action)} good={analysis.approved} />
@@ -183,10 +206,11 @@ function AgentsView() {
       <div className="table-wrap">
         <div className="table-title">Последние решения агентов</div>
         <table>
-          <thead><tr><th>Агент</th><th>Пара</th><th>Действие</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
+          <thead><tr><th>Время</th><th>Агент</th><th>Пара</th><th>Действие</th><th>Уверенность</th><th>Обоснование</th></tr></thead>
           <tbody>
             {decisions.map((item, index) => (
               <tr key={`${item.agent_name}-${item.symbol}-${index}`}>
+                <td>{item.created_at ? new Date(item.created_at).toLocaleString("ru-RU") : "-"}</td>
                 <td>{item.agent_name}</td>
                 <td>{item.symbol}</td>
                 <td><ActionPill action={item.action} /></td>
@@ -194,7 +218,7 @@ function AgentsView() {
                 <td>{item.rationale}</td>
               </tr>
             ))}
-            {!decisions.length && <EmptyRow cols={5} text="Решений агентов пока нет" />}
+            {!decisions.length && <EmptyRow cols={6} text="Решений агентов пока нет" />}
           </tbody>
         </table>
       </div>
@@ -235,6 +259,7 @@ function DashboardView() {
   const [optimizations, setOptimizations] = React.useState<StrategyOptimization[]>([]);
   const [learningRules, setLearningRules] = React.useState<LearningRule[]>([]);
   const [learningSummary, setLearningSummary] = React.useState<LearningSummary | null>(null);
+  const [learningInsights, setLearningInsights] = React.useState<LearningInsights | null>(null);
   const [rlModels, setRlModels] = React.useState<RlModel[]>([]);
   const [status, setStatus] = React.useState<SystemStatus | null>(null);
   const [guard, setGuard] = React.useState<PerformanceGuard | null>(null);
@@ -280,6 +305,7 @@ function DashboardView() {
       request<HistoryReadiness[]>("Свечи", api.get<HistoryReadiness[]>("/market/history/readiness"), setReadiness),
       request<LearningRule[]>("Обучение", api.get<LearningRule[]>("/strategy-lab/learning-rules"), setLearningRules),
       request<LearningSummary>("Память", api.get<LearningSummary>("/strategy-lab/learning-summary"), setLearningSummary),
+      request<LearningInsights>("Выводы обучения", api.get<LearningInsights>("/strategy-lab/learning-insights"), setLearningInsights),
       request<RlModel[]>("RL-модели", api.get<RlModel[]>("/strategy-lab/rl-models"), setRlModels)
     ]);
     if (loadSeq.current === seq) {
@@ -425,9 +451,10 @@ function DashboardView() {
         <Metric label="Баланс" value={`$${fmt(data?.balance)}`} />
         <Metric label="PnL за день" value={`$${fmt(data?.pnl_day)}`} tone={(data?.pnl_day ?? 0) >= 0 ? "good" : "bad"} />
         <Metric label="PnL за неделю" value={`$${fmt(data?.pnl_week)}`} />
-        <Metric label="Win Rate" value={`${fmt(data?.win_rate)}%`} />
-        <Metric label="Сделки" value={String(data?.trades_count ?? 0)} />
+        <Metric label="Win Rate за всё время" value={`${fmt(data?.analytics?.win_rate ?? data?.win_rate)}%`} />
+        <Metric label="Закрыто сделок за всё время" value={String(data?.analytics?.closed_trades ?? data?.trades_count ?? 0)} />
       </div>
+      <TradeAnalyticsPanel analytics={data?.analytics ?? null} />
       {run && (
         <div className="panel-block">
           <div className="table-title">Последний запуск: просканировано {run.scanned}, открыто {run.opened}, пропущено {run.skipped}</div>
@@ -469,11 +496,117 @@ function DashboardView() {
         </div>
       </div>
       <OrdersTable orders={orders} onChanged={load} />
+      <LearningInsightsPanel data={learningInsights} />
       <LearningRulesTable items={learningRules} summary={learningSummary} />
       <RlModelsTable items={rlModels} />
       <ReadinessTable items={readiness} batch={batchHistory} />
       <OptimizationTable items={optimizations} />
     </section>
+  );
+}
+
+function TradeAnalyticsPanel({ analytics }: { analytics: TradeAnalytics | null }) {
+  const symbols = analytics?.by_symbol ?? [];
+  const trades = analytics?.recent_trades ?? [];
+  return (
+    <>
+      <div className="panel-block">
+        <div className="table-title">Результат реальной работы бота за всё время</div>
+        <div className="analytics-grid">
+          <Metric label="Реализованный PnL" value={`$${fmt(analytics?.total_realized_pnl)}`} tone={(analytics?.total_realized_pnl ?? 0) >= 0 ? "good" : "bad"} />
+          <Metric label="Открытый PnL" value={`$${fmt(analytics?.open_pnl)}`} tone={(analytics?.open_pnl ?? 0) >= 0 ? "good" : "bad"} />
+          <Metric label="Итоговый PnL" value={`$${fmt(analytics?.net_pnl)}`} tone={(analytics?.net_pnl ?? 0) >= 0 ? "good" : "bad"} />
+          <Metric label="Победы / убытки / 0" value={`${analytics?.wins ?? 0} / ${analytics?.losses ?? 0} / ${analytics?.breakeven ?? 0}`} />
+          <Metric label="Profit Factor" value={formatProfitFactor(analytics?.profit_factor)} tone={(analytics?.profit_factor ?? 0) >= 1 ? "good" : "bad"} />
+          <Metric label="Ожидание на сделку" value={`$${fmt(analytics?.expectancy)}`} tone={(analytics?.expectancy ?? 0) >= 0 ? "good" : "bad"} />
+          <Metric label="Средняя прибыль" value={`$${fmt(analytics?.average_win)}`} tone="good" />
+          <Metric label="Средний убыток" value={`$${fmt(analytics?.average_loss)}`} tone="bad" />
+          <Metric label="Лучшая / худшая" value={`$${fmt(analytics?.best_trade)} / $${fmt(analytics?.worst_trade)}`} />
+          <Metric label="Макс. серия W / L" value={`${analytics?.max_win_streak ?? 0} / ${analytics?.max_loss_streak ?? 0}`} />
+        </div>
+      </div>
+      <div className="table-wrap">
+        <div className="table-title">Качество сделок по парам</div>
+        <table>
+          <thead><tr><th>Пара</th><th>Сделки</th><th>W/L</th><th>Win Rate</th><th>PnL</th><th>Средняя</th><th>Profit Factor</th><th>Ожидание</th></tr></thead>
+          <tbody>
+            {symbols.map((item) => (
+              <tr key={item.symbol}>
+                <td className="font-semibold">{item.symbol}</td>
+                <td>{item.trades}</td>
+                <td>{item.wins}/{item.losses}</td>
+                <td>{fmt(item.win_rate)}%</td>
+                <td className={item.total_pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_pnl)}</td>
+                <td className={item.average_pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(item.average_pnl)}</td>
+                <td>{formatProfitFactor(item.profit_factor)}</td>
+                <td className={item.expectancy >= 0 ? "text-accent" : "text-danger"}>${fmt(item.expectancy)}</td>
+              </tr>
+            ))}
+            {!symbols.length && <EmptyRow cols={8} text="Закрытых сделок пока нет — статистика появится после первого выхода" />}
+          </tbody>
+        </table>
+      </div>
+      <div className="table-wrap">
+        <div className="table-title">Понятная история последних сделок</div>
+        <table>
+          <thead><tr><th>Закрыта</th><th>Пара</th><th>Сторона</th><th>Результат</th><th>PnL</th><th>Доходность</th><th>Уверенность</th><th>Консенсус</th><th>Риск / R:R</th><th>Почему вошёл</th><th>Почему вышел</th></tr></thead>
+          <tbody>
+            {trades.map((item) => (
+              <tr key={item.id}>
+                <td>{item.closed_at ? new Date(item.closed_at).toLocaleString("ru-RU") : "-"}</td>
+                <td className="font-semibold">{item.symbol}</td>
+                <td><span className={`pill ${item.side === "LONG" ? "buy" : "sell"}`}>{translateAction(item.side)}</span></td>
+                <td><span className={`pill ${item.result === "WIN" ? "buy" : item.result === "LOSS" ? "sell" : ""}`}>{translateTradeResult(item.result)}</span></td>
+                <td className={item.pnl >= 0 ? "text-accent" : "text-danger"}>${fmt(item.pnl)}</td>
+                <td className={item.return_percent >= 0 ? "text-accent" : "text-danger"}>{fmt(item.return_percent)}%</td>
+                <td>{item.confidence == null ? "-" : `${fmt(item.confidence * 100)}%`}</td>
+                <td>{item.consensus_score == null ? "-" : `${fmt(item.consensus_score * 100)}%`}</td>
+                <td>{item.risk_percent == null ? "-" : `${fmt(item.risk_percent)}% / ${fmt(item.risk_reward_ratio ?? 0)}`}</td>
+                <td title={item.decision_reason}>{item.entry_reasons.length ? item.entry_reasons.slice(0, 2).join("; ") : item.decision_reason || "Старая сделка без сохранённого объяснения"}</td>
+                <td>{translateStatus(item.exit_reason ?? "-")}</td>
+              </tr>
+            ))}
+            {!trades.length && <EmptyRow cols={11} text="История появится после закрытия позиции" />}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function LearningInsightsPanel({ data }: { data: LearningInsights | null }) {
+  const insights = data?.insights ?? [];
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Что именно бот выучил</div>
+      <div className="analytics-grid table-summary">
+        <Metric label="Сделок-уроков" value={String(data?.learned_from_trades ?? 0)} />
+        <Metric label="Обновлено правил" value={String(data?.rules_updated ?? 0)} />
+        <Metric label="Надёжных паттернов" value={String(data?.strong_patterns ?? 0)} />
+        <Metric label="Защитных выводов" value={String(data?.protective_patterns ?? 0)} tone={(data?.protective_patterns ?? 0) > 0 ? "bad" : undefined} />
+        <Metric label="Прибыльных паттернов" value={String(data?.favorable_patterns ?? 0)} tone={(data?.favorable_patterns ?? 0) > 0 ? "good" : undefined} />
+      </div>
+      <table>
+        <thead><tr><th>Вывод</th><th>Пара / scope</th><th>Сторона</th><th>Что заметил</th><th>Наблюдения</th><th>W/L</th><th>Win Rate</th><th>PnL</th><th>Уверенность</th><th>Как влияет</th></tr></thead>
+        <tbody>
+          {insights.map((item, index) => (
+            <tr key={`${item.scope}-${item.side}-${item.feature_key}-${item.feature_value}-${index}`}>
+              <td><span className={`pill ${item.impact === "PREFER" ? "buy" : item.impact === "AVOID" ? "sell" : ""}`}>{translateLearningImpact(item.impact)}</span></td>
+              <td>{item.scope}</td>
+              <td>{translateAction(item.side)}</td>
+              <td>{translateFeature(item.feature_key)}: {translateFeatureValue(item.feature_value)}</td>
+              <td>{item.observations}</td>
+              <td>{item.wins}/{item.losses}</td>
+              <td>{fmt(item.win_rate)}%</td>
+              <td className={item.total_profit >= 0 ? "text-accent" : "text-danger"}>${fmt(item.total_profit)}</td>
+              <td>{fmt(item.confidence * 100)}%</td>
+              <td>{item.explanation}</td>
+            </tr>
+          ))}
+          {!insights.length && <EmptyRow cols={10} text="После закрытых сделок здесь появятся конкретные выводы и их влияние на риск" />}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -575,6 +708,34 @@ function OptimizationTable({ items }: { items: StrategyOptimization[] }) {
             );
           })}
           {!items.length && <EmptyRow cols={11} text="Запусти оптимизацию, чтобы получить конфиги стратегии" />}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AgentActivityTable({ activity }: { activity: AgentActivity | null }) {
+  const agents = activity?.agents ?? [];
+  return (
+    <div className="table-wrap">
+      <div className="table-title">Как работают агенты</div>
+      <table>
+        <thead><tr><th>Агент</th><th>Всего</th><th>24 часа</th><th>Средняя уверенность</th><th>BUY/SELL</th><th>ALLOW</th><th>BLOCK</th><th>WAIT</th><th>Последнее решение</th></tr></thead>
+        <tbody>
+          {agents.map((item) => (
+            <tr key={item.agent_name}>
+              <td className="font-semibold">{item.agent_name}</td>
+              <td>{item.decisions}</td>
+              <td>{item.decisions_24h}</td>
+              <td>{fmt(item.average_confidence * 100)}%</td>
+              <td>{item.directional_votes}</td>
+              <td>{item.approvals}</td>
+              <td className={item.blocks > 0 ? "text-danger" : ""}>{item.blocks}</td>
+              <td>{item.waits}</td>
+              <td>{item.last_seen_at ? `${new Date(item.last_seen_at).toLocaleString("ru-RU")} · ${item.last_symbol} · ${translateAction(item.last_action)}` : "-"}</td>
+            </tr>
+          ))}
+          {!agents.length && <EmptyRow cols={9} text="Агенты еще не накопили решений" />}
         </tbody>
       </table>
     </div>
@@ -1109,6 +1270,32 @@ function readError(err: unknown) {
     return formatErrorDetail(response?.data?.detail) ?? "Запрос не выполнен";
   }
   return "Запрос не выполнен";
+}
+
+function formatProfitFactor(value: number | null | undefined) {
+  if (value == null) {
+    return "∞";
+  }
+  return fmt(value);
+}
+
+function translateTradeResult(value: string) {
+  const labels: Record<string, string> = {
+    WIN: "Прибыль",
+    LOSS: "Убыток",
+    BREAKEVEN: "Безубыток"
+  };
+  return labels[value] ?? value;
+}
+
+function translateLearningImpact(value: string) {
+  const labels: Record<string, string> = {
+    PREFER: "Позитивный",
+    WATCH: "Наблюдать",
+    CAUTION: "Снизить риск",
+    AVOID: "Избегать"
+  };
+  return labels[value] ?? value;
 }
 
 function formatErrorDetail(detail: unknown) {
