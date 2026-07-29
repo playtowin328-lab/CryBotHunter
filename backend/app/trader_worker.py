@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 import ccxt
@@ -111,6 +112,7 @@ async def main() -> None:
                                     timeframe=user_settings.scan_interval,
                                 )
                                 summary = _cycle_summary(run.scanned, run.opened, run.skipped, run.decisions, tick.closed)
+                                cycle_metrics = _cycle_metrics(run.decisions)
                                 logger.info(summary)
                                 db.add(LogEntry(level="INFO", message=summary))
                                 await db.commit()
@@ -119,7 +121,9 @@ async def main() -> None:
                                     {
                                         "scanned": run.scanned,
                                         "opened": run.opened,
+                                        "skipped": run.skipped,
                                         "closed": tick.closed,
+                                        **cycle_metrics,
                                     },
                                 )
                                 report_due = _report_due(
@@ -192,15 +196,56 @@ async def _load_safety_credentials() -> SafetyCredentials | None:
 
 
 def _cycle_summary(scanned: int, opened: int, skipped: int, decisions: list, closed: int) -> str:
+    metrics = _cycle_metrics(decisions)
+    ranked = sorted(
+        decisions,
+        key=lambda decision: (decision.action == "OPENED", decision.signal in {"BUY", "SELL"}, decision.score),
+        reverse=True,
+    )
     samples = "; ".join(
         f"{decision.symbol}={decision.signal}/{decision.action}({decision.score}): {decision.reason}"
-        for decision in decisions
+        for decision in ranked[:5]
     )
     message = (
         f"Auto-trade cycle scanned={scanned} opened={opened} skipped={skipped} "
-        f"closed={closed} learning_updates={closed}"
+        f"closed={closed} learning_updates={closed} directional={metrics['directional_candidates']} "
+        f"strong_waits={metrics['strong_wait_candidates']} top_blocker={metrics['top_blocker']}"
     )
-    return f"{message}; {samples}"[:1000] if samples else message
+    return f"{message}; top_opportunities: {samples}"[:1000] if samples else message
+
+
+def _cycle_metrics(decisions: list) -> dict[str, int | str]:
+    directional = sum(decision.signal in {"BUY", "SELL"} for decision in decisions)
+    min_score = int(get_settings().paper_exploration_min_score)
+    strong_waits = sum(decision.signal == "WAIT" and decision.score >= min_score for decision in decisions)
+    blockers = Counter(
+        _cycle_blocker(decision.reason)
+        for decision in decisions
+        if decision.action == "SKIPPED"
+    )
+    top_blocker = blockers.most_common(1)[0][0] if blockers else "NONE"
+    return {
+        "directional_candidates": directional,
+        "strong_wait_candidates": strong_waits,
+        "top_blocker": top_blocker,
+    }
+
+
+def _cycle_blocker(reason: str) -> str:
+    normalized = str(reason or "").lower()
+    markers = (
+        ("position already open", "POSITION_OPEN"),
+        ("strategy wait", "STRATEGY_WAIT"),
+        ("pre-trade quality", "PRETRADE"),
+        ("market quality", "MARKET_QUALITY"),
+        ("micro gate", "MICROSTRUCTURE"),
+        ("committee rejected", "COMMITTEE"),
+        ("rl disagrees", "RL"),
+        ("cooldown", "COOLDOWN"),
+        ("position limit", "POSITION_LIMIT"),
+        ("exposure", "EXPOSURE"),
+    )
+    return next((code for marker, code in markers if marker in normalized), "OTHER")
 
 
 def _report_due(last_sent_at: datetime | None, interval_minutes: int) -> bool:

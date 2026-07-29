@@ -204,7 +204,7 @@ class SystemHealthService:
     async def _exchange_health(self) -> ComponentHealth:
         started = perf_counter()
         exchange = self.exchange_factory()
-        symbol = (self.settings.candle_ingest_symbols or ["BTC/USDT"])[0]
+        symbol = (self.settings.candle_ingest_symbols or ["ETH/USDT"])[0]
         try:
             candles = await asyncio.wait_for(exchange.fetch_ohlcv(symbol, "1m", 2), timeout=12)
             if not candles:

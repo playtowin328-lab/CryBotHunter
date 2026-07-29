@@ -411,6 +411,9 @@ class LearningProgressOut(BaseModel):
     signals_24h: int
     directional_signals_24h: int
     waits_24h: int
+    strong_waits_24h: int
+    trading_symbols: list[str]
+    excluded_symbols: list[str]
     agent_decisions_24h: int
     learning_rules: int
     learning_observations: int

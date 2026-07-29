@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
-from app.trader_worker import _cycle_summary, _report_due
+from app.trader_worker import _cycle_metrics, _cycle_summary, _report_due
 
 
 def test_cycle_summary_makes_automatic_trade_attempt_visible():
@@ -27,6 +27,37 @@ def test_cycle_summary_makes_automatic_trade_attempt_visible():
     assert "Auto-trade cycle scanned=2 opened=1 skipped=1 closed=1" in summary
     assert "learning_updates=1" in summary
     assert "BTC/USDT=BUY/OPENED(91)" in summary
+    assert "directional=1" in summary
+    assert "top_opportunities" in summary
+
+
+def test_cycle_metrics_expose_opportunity_flow_and_top_blocker(monkeypatch):
+    monkeypatch.setattr(
+        "app.trader_worker.get_settings",
+        lambda: type("Settings", (), {"paper_exploration_min_score": 60})(),
+    )
+    decisions = [
+        SimpleNamespace(
+            symbol="ETH/USDT",
+            signal="WAIT",
+            action="SKIPPED",
+            score=64,
+            reason="strategy WAIT score=64",
+        ),
+        SimpleNamespace(
+            symbol="SOL/USDT",
+            signal="SELL",
+            action="SKIPPED",
+            score=82,
+            reason="micro gate blocked",
+        ),
+    ]
+
+    assert _cycle_metrics(decisions) == {
+        "directional_candidates": 1,
+        "strong_wait_candidates": 1,
+        "top_blocker": "STRATEGY_WAIT",
+    }
 
 
 def test_report_due_respects_interval():

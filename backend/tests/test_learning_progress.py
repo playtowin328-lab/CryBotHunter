@@ -32,6 +32,9 @@ def test_learning_progress_explains_common_trade_blockers():
     assert service.normalize_blocker("Skipped SOL/USDT: performance guard recovery position limit reached") == "RECOVERY_POSITION_LIMIT"
     assert service.normalize_blocker("Skipped ETH/USDT: pre-trade quality blocked: too few trades") == "PRETRADE_QUALITY"
     assert service.normalize_blocker("Skipped XRP/USDT: RL disagrees: strategy=BUY") == "RL_DISAGREEMENT"
+    assert service.normalize_blocker("Skipped ETH/USDT: strategy WAIT score=62, rating=70") == "STRATEGY_WAIT"
+    assert service.normalize_blocker("Skipped SOL/USDT: micro gate blocked strong opposing flow") == "MICROSTRUCTURE"
+    assert service.normalize_blocker("Skipped AAVE/USDT: committee rejected: consensus=0.67") == "COMMITTEE"
 
 
 def test_rl_fleet_separates_pair_coverage_from_experiment_history():

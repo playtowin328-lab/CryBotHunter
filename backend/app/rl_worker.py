@@ -47,6 +47,21 @@ async def main() -> None:
         await heartbeat.stop()
         logger.info("RL worker stopped while waiting for database migration")
         return
+    async with AsyncSessionLocal() as db:
+        retired = await trainer.retire_excluded_symbols(db, settings.trading_excluded_symbols)
+        if retired["models_retired"] or retired["shadow_trades_closed"]:
+            db.add(
+                LogEntry(
+                    level="INFO",
+                    message=(
+                        f"Excluded RL symbols retired={retired['models_retired']} "
+                        f"shadow_closed={retired['shadow_trades_closed']} "
+                        f"symbols={settings.trading_excluded_symbols}"
+                    ),
+                )
+            )
+            logger.info("Excluded RL state cleaned %s", retired)
+        await db.commit()
     while not shutdown.requested:
         cycle_started = perf_counter()
         processed = 0

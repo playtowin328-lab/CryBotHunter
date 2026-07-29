@@ -158,7 +158,7 @@ async def sample_backtest(_: User = Depends(current_user)) -> BacktestOut:
 
 @router.post("/backtest", response_model=BacktestOut)
 async def run_backtest(
-    symbol: str = "BTC/USDT",
+    symbol: str = "ETH/USDT",
     timeframe: str = "1h",
     limit: int = 500,
     user: User = Depends(current_user),
@@ -176,7 +176,7 @@ async def run_backtest(
 
 @router.post("/backtest/walk-forward", response_model=WalkForwardOut)
 async def run_walk_forward_backtest(
-    symbol: str = "BTC/USDT",
+    symbol: str = "ETH/USDT",
     timeframe: str = "1h",
     limit: int = 1000,
     train_size: int = 300,

@@ -5,6 +5,7 @@ from app.api.deps import current_user
 from app.db.session import get_db
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.models.entities import LearningRule, Position, RlModel, ShadowTrade, TradePostMortem, User
 from app.schemas.dto import (
     LearningInsightsOut,
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/strategy-lab", tags=["strategy-lab"])
 
 @router.post("/optimize", response_model=list[StrategyOptimizationOut])
 async def optimize(
-    symbol: str = "BTC/USDT",
+    symbol: str = "ETH/USDT",
     timeframe: str = "1h",
     limit: int = 500,
     _: User = Depends(current_user),
@@ -48,7 +49,11 @@ async def rl_models(
     limit: int = 20,
 ) -> list[RlModelOut]:
     bounded_limit = max(1, min(limit, 100))
-    result = await db.execute(select(RlModel).order_by(RlModel.created_at.desc()).limit(bounded_limit))
+    statement = select(RlModel)
+    excluded = get_settings().trading_excluded_symbols
+    if excluded:
+        statement = statement.where(RlModel.symbol.not_in(excluded))
+    result = await db.execute(statement.order_by(RlModel.created_at.desc()).limit(bounded_limit))
     return list(result.scalars().all())
 
 
@@ -59,7 +64,11 @@ async def shadow_trades(
     limit: int = 30,
 ) -> list[ShadowTradeOut]:
     bounded_limit = max(1, min(limit, 100))
-    result = await db.execute(select(ShadowTrade).order_by(ShadowTrade.entered_at.desc()).limit(bounded_limit))
+    statement = select(ShadowTrade)
+    excluded = get_settings().trading_excluded_symbols
+    if excluded:
+        statement = statement.where(ShadowTrade.symbol.not_in(excluded))
+    result = await db.execute(statement.order_by(ShadowTrade.entered_at.desc()).limit(bounded_limit))
     return list(result.scalars().all())
 
 

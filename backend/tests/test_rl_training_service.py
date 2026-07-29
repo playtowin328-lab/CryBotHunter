@@ -231,3 +231,29 @@ async def test_shadow_without_backtest_edge_never_promotes(monkeypatch):
     monkeypatch.setattr(service, "shadow_for", shadow_for)
 
     assert await service.evaluate_shadow_promotion(object(), "BTC/USDT", "1h") == "NONE"
+
+
+@pytest.mark.asyncio
+async def test_excluded_symbol_cleanup_retires_models_and_closes_virtual_positions():
+    service = RlTrainingService()
+
+    class Result:
+        def __init__(self, rowcount):
+            self.rowcount = rowcount
+
+    class Db:
+        def __init__(self):
+            self.results = [Result(2), Result(1)]
+            self.flushes = 0
+
+        async def execute(self, _statement):
+            return self.results.pop(0)
+
+        async def flush(self):
+            self.flushes += 1
+
+    db = Db()
+    result = await service.retire_excluded_symbols(db, ["btc/usdt", "BTC/USDT"])
+
+    assert result == {"models_retired": 2, "shadow_trades_closed": 1}
+    assert db.flushes == 1
