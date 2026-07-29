@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     market_quality_max_spread_bps: float = 25.0
     market_quality_max_price_change_percent: float = 18.0
     market_quality_min_risk_multiplier: float = 0.5
+    market_scan_concurrency: int = 3
+    market_scan_symbols_raw: str = Field(
+        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        validation_alias="MARKET_SCAN_SYMBOLS",
+    )
     loss_cooldown_enabled: bool = True
     loss_cooldown_symbol_hours: float = 6.0
     loss_cooldown_global_hours: float = 3.0
@@ -121,7 +126,10 @@ class Settings(BaseSettings):
     strategy_optimizer_min_validation_win_rate: float = 35.0
     strategy_optimizer_min_validation_profit: float = 0.0
     strategy_optimizer_max_overfit_ratio: float = 8.0
-    candle_ingest_symbols_raw: str = Field(default="BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT", validation_alias="CANDLE_INGEST_SYMBOLS")
+    candle_ingest_symbols_raw: str = Field(
+        default="BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,XRP/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,AVAX/USDT,DOT/USDT,LTC/USDT,TRX/USDT",
+        validation_alias="CANDLE_INGEST_SYMBOLS",
+    )
     candle_ingest_timeframes_raw: str = Field(default="1h", validation_alias="CANDLE_INGEST_TIMEFRAMES")
     candle_ingest_limit: int = 500
     candle_ingest_loop_seconds: int = 300
@@ -154,6 +162,10 @@ class Settings(BaseSettings):
     @property
     def candle_ingest_symbols(self) -> list[str]:
         return _parse_csv(self.candle_ingest_symbols_raw)
+
+    @property
+    def market_scan_symbols(self) -> list[str]:
+        return _parse_csv(self.market_scan_symbols_raw)
 
     @property
     def candle_ingest_timeframes(self) -> list[str]:
