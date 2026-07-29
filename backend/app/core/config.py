@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     market_data_mode: str = "ccxt"
     paper_fee_rate: float = 0.0004
     paper_slippage_bps: float = 2.0
+    execution_latency_ms: int = 250
+    execution_market_impact_bps: float = 1.5
     exchange_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("EXCHANGE_API_KEY", "API_KEY"),
@@ -75,7 +77,15 @@ class Settings(BaseSettings):
     guard_recovery_risk_multiplier: float = 0.25
     guard_recovery_max_positions: int = 1
     ai_committee_enabled: bool = True
-    ai_committee_min_consensus: float = 0.66
+    ai_committee_min_consensus: float = 0.75
+    entry_microstructure_enabled: bool = True
+    entry_microstructure_timeout_seconds: float = 8.0
+    entry_microstructure_depth: int = 20
+    entry_microstructure_trade_limit: int = 100
+    entry_microstructure_max_spread_bps: float = 20.0
+    entry_microstructure_min_consensus: float = 0.5
+    entry_microstructure_fail_open_risk_multiplier: float = 0.65
+    entry_microstructure_neutral_risk_multiplier: float = 0.75
     max_gross_exposure_percent: float = 300.0
     max_symbol_exposure_percent: float = 100.0
     max_position_size_percent: float = 25.0
@@ -105,7 +115,7 @@ class Settings(BaseSettings):
     loss_cooldown_global_hours: float = 3.0
     loss_cooldown_loss_streak: int = 2
     loss_cooldown_min_loss: float = 0.0
-    paper_exploration_enabled: bool = False
+    paper_exploration_enabled: bool = True
     paper_exploration_min_score: int = 65
     paper_exploration_risk_percent: float = 0.15
     paper_exploration_max_risk_percent: float = 0.15
@@ -117,6 +127,12 @@ class Settings(BaseSettings):
     paper_exploration_cooldown_minutes: int = 240
     learning_progress_target_trades: int = 30
     learning_progress_target_observations: int = 100
+    post_mortem_enabled: bool = True
+    post_mortem_lookback_minutes: int = 30
+    post_mortem_market_timeout_seconds: float = 10.0
+    post_mortem_snapshot_interval_minutes: int = 10
+    post_mortem_max_position_snapshots: int = 36
+    bad_replay_max_weight: float = 3.0
     strategy_optimizer_apply_enabled: bool = True
     strategy_optimizer_min_profit_factor: float = 1.05
     strategy_optimizer_min_trades: int = 3
@@ -167,6 +183,19 @@ class Settings(BaseSettings):
     rl_gate_min_confidence: float = 0.55
     rl_gate_max_age_hours: float = 6.0
     rl_wait_risk_multiplier: float = 0.5
+    rl_curriculum_enabled: bool = True
+    rl_behavior_penalty: float = 0.35
+    rl_strategy_adherence_bonus: float = 0.03
+    shadow_trade_notional: float = 100.0
+    shadow_trade_min_confidence: float = 0.55
+    shadow_trade_stop_percent: float = 1.5
+    shadow_trade_take_percent: float = 3.0
+    shadow_forward_min_trades: int = 5
+    shadow_forward_min_profit_factor: float = 1.1
+    shadow_forward_min_win_rate: float = 40.0
+    shadow_forward_min_pnl: float = 0.0
+    shadow_forward_max_drawdown_percent: float = 8.0
+    shadow_forward_max_trial_days: float = 7.0
 
     @property
     def cors_origins(self) -> list[str]:

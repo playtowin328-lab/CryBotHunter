@@ -5,8 +5,17 @@ from app.api.deps import current_user
 from app.db.session import get_db
 from sqlalchemy import func, select
 
-from app.models.entities import LearningRule, Position, RlModel, User
-from app.schemas.dto import LearningInsightsOut, LearningProgressOut, LearningRuleOut, LearningSummaryOut, RlModelOut, StrategyOptimizationOut
+from app.models.entities import LearningRule, Position, RlModel, ShadowTrade, TradePostMortem, User
+from app.schemas.dto import (
+    LearningInsightsOut,
+    LearningProgressOut,
+    LearningRuleOut,
+    LearningSummaryOut,
+    RlModelOut,
+    ShadowTradeOut,
+    StrategyOptimizationOut,
+    TradePostMortemOut,
+)
 from app.services.learning import LearningService
 from app.services.learning_progress import LearningProgressService
 from app.services.optimizer import StrategyOptimizerService
@@ -40,6 +49,32 @@ async def rl_models(
 ) -> list[RlModelOut]:
     bounded_limit = max(1, min(limit, 100))
     result = await db.execute(select(RlModel).order_by(RlModel.created_at.desc()).limit(bounded_limit))
+    return list(result.scalars().all())
+
+
+@router.get("/shadow-trades", response_model=list[ShadowTradeOut])
+async def shadow_trades(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 30,
+) -> list[ShadowTradeOut]:
+    bounded_limit = max(1, min(limit, 100))
+    result = await db.execute(select(ShadowTrade).order_by(ShadowTrade.entered_at.desc()).limit(bounded_limit))
+    return list(result.scalars().all())
+
+
+@router.get("/post-mortems", response_model=list[TradePostMortemOut])
+async def post_mortems(
+    _: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 30,
+) -> list[TradePostMortemOut]:
+    bounded_limit = max(1, min(limit, 100))
+    result = await db.execute(
+        select(TradePostMortem)
+        .order_by(TradePostMortem.closed_at.desc(), TradePostMortem.priority.desc())
+        .limit(bounded_limit)
+    )
     return list(result.scalars().all())
 
 

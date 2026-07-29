@@ -170,3 +170,64 @@ def test_promotion_requires_benchmark_edge_and_seed_stability():
     assert not service._passes_promotion({**strong, "excess_return_percent": -0.1})
     assert not service._passes_promotion({**strong, "profitable_seed_ratio": 0.0})
     assert "buy-and-hold" in service._promotion_reason({**strong, "excess_return_percent": -0.1})
+
+
+@pytest.mark.asyncio
+async def test_shadow_promotion_requires_both_backtest_and_forward_evidence(monkeypatch):
+    service = RlTrainingService()
+    service.settings = SimpleNamespace(shadow_forward_max_trial_days=7)
+    record = RlModel(
+        id=12,
+        symbol="BTC/USDT",
+        timeframe="1h",
+        status="SHADOW",
+        is_active=False,
+        metrics={"backtest_passed": True},
+        created_at=datetime.now(timezone.utc),
+    )
+
+    async def shadow_for(_db, _symbol, _timeframe):
+        return record
+
+    async def report(_db, _model_id):
+        return SimpleNamespace(
+            status="PASSED",
+            reason="passed",
+            closed_trades=7,
+            wins=5,
+            losses=2,
+            win_rate=71.43,
+            profit_factor=1.8,
+            total_pnl=4.2,
+            max_drawdown_percent=2.1,
+        )
+
+    class Db:
+        async def execute(self, _statement):
+            return None
+
+        async def flush(self):
+            return None
+
+    monkeypatch.setattr(service, "shadow_for", shadow_for)
+    monkeypatch.setattr(service.shadow_trading, "report", report)
+
+    state = await service.evaluate_shadow_promotion(Db(), "BTC/USDT", "1h")
+
+    assert state == "PROMOTED"
+    assert record.status == "ACTIVE"
+    assert record.is_active is True
+    assert record.metrics["promoted_after_forward_test"] is True
+
+
+@pytest.mark.asyncio
+async def test_shadow_without_backtest_edge_never_promotes(monkeypatch):
+    service = RlTrainingService()
+    record = SimpleNamespace(metrics={"backtest_passed": False})
+
+    async def shadow_for(_db, _symbol, _timeframe):
+        return record
+
+    monkeypatch.setattr(service, "shadow_for", shadow_for)
+
+    assert await service.evaluate_shadow_promotion(object(), "BTC/USDT", "1h") == "NONE"

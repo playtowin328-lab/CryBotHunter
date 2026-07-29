@@ -26,7 +26,12 @@ class LearningService:
     min_observations_for_block = 2
     half_life_days = 14.0
     min_risk_multiplier = 0.35
-    blocking_feature_keys = {"setup_signature", "momentum_profile", "risk_profile"}
+    blocking_feature_keys = {
+        "setup_signature",
+        "momentum_profile",
+        "risk_profile",
+        "post_mortem_primary_label",
+    }
     feature_weights = {
         "setup_signature": 1.6,
         "momentum_profile": 1.1,
@@ -39,6 +44,9 @@ class LearningService:
         "atr_bucket": 0.4,
         "macd_direction": 0.35,
         "exit_reason": 0.25,
+        "post_mortem_primary_label": 1.8,
+        "post_mortem_behavior": 1.5,
+        "strategy_followed": 0.25,
     }
 
     def entry_context(self, coin: MarketCoin, signal: str, reasons: list[str]) -> dict[str, Any]:
@@ -115,6 +123,13 @@ class LearningService:
         context = position.entry_context or {}
         side = str(context.get("side") or position.side)
         features = self._features_from_context(context)
+        post_mortem = context.get("post_mortem") if isinstance(context.get("post_mortem"), dict) else {}
+        if post_mortem.get("primary_label"):
+            features.append(("post_mortem_primary_label", str(post_mortem["primary_label"])))
+        for label in post_mortem.get("behavior_labels", []) if isinstance(post_mortem.get("behavior_labels"), list) else []:
+            features.append(("post_mortem_behavior", str(label)))
+        if "strategy_followed" in post_mortem:
+            features.append(("strategy_followed", "yes" if post_mortem.get("strategy_followed") else "no"))
         if reason:
             features.append(("exit_reason", reason))
         for scope in ("GLOBAL", position.symbol):

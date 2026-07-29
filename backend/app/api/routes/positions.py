@@ -12,6 +12,7 @@ from app.schemas.dto import PositionOut
 from app.services.context_manager import ContextManager
 from app.services.execution import ExecutionService
 from app.services.learning import LearningService
+from app.services.post_mortem import PostMortemService
 
 router = APIRouter(prefix="/positions", tags=["positions"])
 
@@ -28,7 +29,8 @@ async def close_position(position_id: int, _: User = Depends(current_user), db: 
         raise HTTPException(status_code=404, detail="Position not found")
     if position.status != "OPEN":
         raise HTTPException(status_code=409, detail="Position is already closed")
-    exit_order = await ExecutionService().execute_market(
+    execution = ExecutionService()
+    exit_order = await execution.execute_market(
         db,
         position.symbol,
         "sell" if position.side == "LONG" else "buy",
@@ -84,6 +86,26 @@ async def close_position(position_id: int, _: User = Depends(current_user), db: 
             )
         )
     position.pnl = round(previous_realized + final_profit, 4)
+    try:
+        post_mortem = await PostMortemService(execution.exchange).analyze_loss(db, position, exit_order, "MANUAL")
+        if post_mortem:
+            db.add(
+                LogEntry(
+                    level="WARNING",
+                    message=(
+                        f"Post-mortem {position.symbol} #{position.id}: "
+                        f"label={post_mortem.primary_label}, reward={post_mortem.shaped_reward:+.2f}, "
+                        f"priority={post_mortem.priority:.2f}"
+                    ),
+                )
+            )
+    except Exception as exc:
+        db.add(
+            LogEntry(
+                level="ERROR",
+                message=f"Post-mortem failed for {position.symbol} #{position.id}: {type(exc).__name__}",
+            )
+        )
     await LearningService().record_closed_position(db, position, position.pnl, "MANUAL")
     try:
         await ContextManager().remember_trade(
