@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import Position, Trade
+from app.models.entities import Position
 
 
 @dataclass
@@ -30,16 +30,20 @@ class PerformanceGuardService:
         now: datetime | None = None,
     ) -> PerformanceGuardReport:
         settings = get_settings()
-        closed_at = func.coalesce(Position.closed_at, Trade.created_at)
-        rows = (
+        fetch_limit = max(limit * 10, limit)
+        raw_rows = (
             await db.execute(
-                select(Trade.profit, closed_at)
-                .outerjoin(Position, Trade.position_id == Position.id)
-                .where(Trade.exit_price.is_not(None))
-                .order_by(closed_at.desc(), Trade.id.desc())
-                .limit(limit)
+                select(Position.pnl, Position.closed_at, Position.entry_context)
+                .where(Position.status == "CLOSED")
+                .order_by(Position.closed_at.desc(), Position.id.desc())
+                .limit(fetch_limit)
             )
         ).all()
+        rows = [
+            (row[0], row[1])
+            for row in raw_rows
+            if not self._is_paper_exploration(row[2] if len(row) > 2 else None)
+        ][:limit]
         if len(rows) < settings.guard_min_trades:
             return PerformanceGuardReport(True, "not enough closed trades for guard", len(rows), 0, 0, 0)
 
@@ -132,3 +136,6 @@ class PerformanceGuardService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
+
+    def _is_paper_exploration(self, entry_context: dict | None) -> bool:
+        return bool(isinstance(entry_context, dict) and entry_context.get("paper_exploration"))
