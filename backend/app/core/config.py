@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     telegram_outbox_retry_limit: int = 8
     telegram_outbox_batch_size: int = 20
     telegram_outbox_retention_days: int = 7
+    telegram_daily_report_enabled: bool = True
+    telegram_daily_report_hour_utc: int = 18
+    telegram_daily_report_minute_utc: int = 0
     worker_heartbeat_enabled: bool = True
     worker_heartbeat_interval_seconds: int = 30
     worker_heartbeat_stale_seconds: int = 180
@@ -65,6 +68,10 @@ class Settings(BaseSettings):
     guard_min_win_rate: float = 35.0
     guard_max_loss_streak: int = 3
     guard_min_total_profit: float = -50.0
+    guard_recovery_enabled: bool = True
+    guard_recovery_cooldown_hours: float = 6.0
+    guard_recovery_risk_multiplier: float = 0.25
+    guard_recovery_max_positions: int = 1
     ai_committee_enabled: bool = True
     ai_committee_min_consensus: float = 0.66
     max_gross_exposure_percent: float = 300.0
