@@ -348,6 +348,17 @@ button {
   @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-5;
 }
 
+.analytics-grid {
+  @apply grid gap-3 sm:grid-cols-2 lg:grid-cols-5;
+}
+
+.agent-symbol-select {
+  @apply h-10 rounded-md border px-3 text-sm font-bold;
+  border-color: rgba(125, 211, 252, 0.34);
+  background: rgba(4, 20, 52, 0.98);
+  color: var(--text);
+}
+
 .mini-grid {
   @apply grid gap-3 sm:grid-cols-2;
 }
