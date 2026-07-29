@@ -289,6 +289,8 @@ def test_paper_exploration_converts_strong_wait_to_small_test_direction():
         paper_trading=True,
         paper_exploration_enabled=True,
         paper_exploration_min_score=65,
+        paper_exploration_min_directional_votes=5,
+        paper_exploration_min_vote_margin=2,
     )
     wait = StrategySignal(
         symbol="BTC/USDT",
@@ -311,6 +313,8 @@ def test_paper_exploration_never_overrides_hard_market_block_or_live_mode():
         paper_trading=True,
         paper_exploration_enabled=True,
         paper_exploration_min_score=65,
+        paper_exploration_min_directional_votes=5,
+        paper_exploration_min_vote_margin=2,
     )
     wait = StrategySignal(
         symbol="BTC/USDT",
@@ -330,6 +334,34 @@ def test_paper_exploration_never_overrides_hard_market_block_or_live_mode():
     assert exploration is False
 
 
+def test_paper_exploration_requires_decisive_indicator_vote():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_trading=True,
+        paper_exploration_enabled=True,
+        paper_exploration_min_score=65,
+        paper_exploration_min_directional_votes=5,
+        paper_exploration_min_vote_margin=2,
+    )
+    mixed_coin = coin().model_copy(
+        update={
+            "regime": "RANGING",
+            "ema20": 101,
+            "ema50": 100,
+            "ema200": 102,
+            "price": 100,
+            "rsi": 50,
+            "macd": -1,
+            "price_change_percent": 1,
+        }
+    )
+    wait = StrategySignal(symbol="BTC/USDT", signal="WAIT", score=75, reasons=["mixed setup"])
+
+    signal, exploration = engine._paper_exploration_signal(mixed_coin, wait)
+
+    assert signal.signal == "WAIT"
+    assert exploration is False
+
 def test_paper_exploration_uses_its_own_same_side_limit_only_in_paper_mode():
     engine = TradingEngine()
     engine.settings = SimpleNamespace(
@@ -343,6 +375,48 @@ def test_paper_exploration_uses_its_own_same_side_limit_only_in_paper_mode():
 
     engine.settings.paper_trading = False
     assert engine._same_side_position_limit(paper_exploration=True) == 2
+
+
+def test_paper_exploration_has_independent_recovery_slots():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_exploration_max_positions=5,
+        paper_exploration_recovery_slots=2,
+    )
+    recovery = PerformanceGuardReport(
+        allowed=True,
+        reason="recovery",
+        trades_checked=5,
+        win_rate=20,
+        loss_streak=3,
+        total_profit=-10,
+        recovery_mode=True,
+    )
+    normal = PerformanceGuardReport(
+        allowed=True,
+        reason="passed",
+        trades_checked=5,
+        win_rate=60,
+        loss_streak=0,
+        total_profit=10,
+    )
+
+    assert engine._paper_exploration_position_limit(recovery) == 2
+    assert engine._paper_exploration_position_limit(normal) == 5
+
+
+def test_paper_exploration_enforces_absolute_micro_risk_cap():
+    engine = TradingEngine()
+    engine.settings = SimpleNamespace(
+        paper_exploration_risk_percent=0.25,
+        paper_exploration_max_risk_percent=0.15,
+        paper_exploration_min_score=65,
+    )
+
+    updated = engine._paper_exploration_settings(risk_settings())
+
+    assert updated.risk_percent == 0.15
+    assert updated.min_rating == 65
 
 
 @pytest.mark.asyncio

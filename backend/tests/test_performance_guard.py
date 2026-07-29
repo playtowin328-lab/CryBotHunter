@@ -79,6 +79,26 @@ async def test_new_loss_restarts_guard_recovery_cooldown(monkeypatch):
     assert report.retry_at == now + timedelta(hours=5, minutes=50)
 
 
+@pytest.mark.asyncio
+async def test_guard_ignores_paper_learning_outcomes(monkeypatch):
+    service = PerformanceGuardService()
+    now = datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)
+    settings = service_settings(monkeypatch)
+    settings.guard_min_trades = 2
+    rows = [
+        (-10.0, now - timedelta(hours=1), {"paper_exploration": True}),
+        (2.0, now - timedelta(hours=2), {"paper_exploration": False}),
+        (1.0, now - timedelta(hours=3), {}),
+    ]
+
+    report = await service.evaluate(Db(rows), now=now)
+
+    assert report.allowed is True
+    assert report.trades_checked == 2
+    assert report.win_rate == 100
+    assert report.total_profit == 3
+
+
 def service_settings(monkeypatch):
     from app.core.config import get_settings
 
