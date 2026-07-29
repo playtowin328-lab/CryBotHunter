@@ -300,7 +300,7 @@ export type RlModel = {
   symbol: string;
   timeframe: string;
   algorithm: string;
-  status: "ACTIVE" | "REJECTED" | "RETIRED" | string;
+  status: "ACTIVE" | "SHADOW" | "REJECTED" | "RETIRED" | "CANDIDATE" | string;
   is_active: boolean;
   training_candles: number;
   validation_candles: number;
@@ -386,6 +386,24 @@ export type TradeBlocker = {
   count: number;
 };
 
+export type RlFleet = {
+  target_pairs: number;
+  target_models: number;
+  active_pairs: number;
+  active_models: number;
+  shadow_models: number;
+  rejected_models: number;
+  retired_models: number;
+  candidate_models: number;
+  total_experiments: number;
+  promoted_experiments: number;
+  promotion_rate_percent: number;
+  active_decisions_24h: number;
+  shadow_decisions_24h: number;
+  uncovered_pairs: string[];
+  last_training_at?: string | null;
+};
+
 export type LearningProgress = {
   stage: "COLLECTING" | "CALIBRATING" | "LEARNING" | "MATURE";
   overall_progress_percent: number;
@@ -405,6 +423,7 @@ export type LearningProgress = {
   learning_observations: number;
   active_rl_pairs: number;
   trained_rl_models: number;
+  rl_fleet: RlFleet;
   optimized_pairs: number;
   candle_pairs_ready: number;
   candle_pairs_total: number;

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import AgentDecision, Candle, LearningRule, LogEntry, Position, RlModel, Signal, StrategyOptimization
-from app.schemas.dto import LearningMilestoneOut, LearningProgressOut, TradeBlockerOut
+from app.schemas.dto import LearningMilestoneOut, LearningProgressOut, RlFleetOut, TradeBlockerOut
 from app.services.performance_guard import PerformanceGuardService
 
 
@@ -59,8 +59,48 @@ class LearningProgressService:
         learning_observations = sum(int(rule.observations or 0) for rule in rules)
         last_learning_at = max((self._aware(rule.updated_at) for rule in rules if rule.updated_at), default=None)
 
-        rl_models = list((await db.execute(select(RlModel))).scalars().all())
-        active_rl_pairs = len({model.symbol for model in rl_models if model.is_active})
+        rl_symbols = settings.rl_symbols
+        rl_timeframes = settings.candle_ingest_timeframes
+        rl_status_rows = (
+            await db.execute(
+                select(RlModel.status, func.count(RlModel.id), func.max(RlModel.created_at))
+                .group_by(RlModel.status)
+            )
+        ).all()
+        rl_status_counts = {str(status).upper(): int(count) for status, count, _ in rl_status_rows}
+        rl_last_training_at = max(
+            (self._aware(created_at) for _, _, created_at in rl_status_rows if created_at),
+            default=None,
+        )
+        active_rl_symbols = set(
+            (
+                await db.execute(
+                    select(RlModel.symbol)
+                    .where(RlModel.is_active.is_(True), RlModel.symbol.in_(rl_symbols))
+                    .distinct()
+                )
+            ).scalars().all()
+        )
+        rl_decision_rows = (
+            await db.execute(
+                select(AgentDecision.agent_name, func.count(AgentDecision.id))
+                .where(
+                    AgentDecision.created_at >= cutoff_24h,
+                    AgentDecision.agent_name.in_(("rl_policy", "rl_shadow")),
+                )
+                .group_by(AgentDecision.agent_name)
+            )
+        ).all()
+        rl_decision_counts = {str(agent_name): int(count) for agent_name, count in rl_decision_rows}
+        rl_fleet = self.build_rl_fleet(
+            status_counts=rl_status_counts,
+            active_symbols=active_rl_symbols,
+            target_symbols=rl_symbols,
+            target_timeframes=rl_timeframes,
+            decision_counts=rl_decision_counts,
+            last_training_at=rl_last_training_at,
+        )
+        active_rl_pairs = rl_fleet.active_pairs
         optimized_pairs = int(
             (
                 await db.execute(select(func.count(func.distinct(StrategyOptimization.symbol))))
@@ -91,6 +131,7 @@ class LearningProgressService:
             active_rl_pairs=active_rl_pairs,
             candle_pairs_ready=candle_pairs_ready,
             candle_pairs_total=len(symbols),
+            rl_pairs_total=rl_fleet.target_pairs,
             trade_target=settings.learning_progress_target_trades,
             observation_target=settings.learning_progress_target_observations,
         )
@@ -138,7 +179,8 @@ class LearningProgressService:
             learning_rules=len(rules),
             learning_observations=learning_observations,
             active_rl_pairs=active_rl_pairs,
-            trained_rl_models=len(rl_models),
+            trained_rl_models=rl_fleet.total_experiments,
+            rl_fleet=rl_fleet,
             optimized_pairs=optimized_pairs,
             candle_pairs_ready=candle_pairs_ready,
             candle_pairs_total=len(symbols),
@@ -153,6 +195,45 @@ class LearningProgressService:
             top_blockers_24h=top_blockers,
         )
 
+    def build_rl_fleet(
+        self,
+        *,
+        status_counts: dict[str, int],
+        active_symbols: set[str],
+        target_symbols: list[str],
+        target_timeframes: list[str],
+        decision_counts: dict[str, int] | None = None,
+        last_training_at: datetime | None = None,
+    ) -> RlFleetOut:
+        normalized_counts = {
+            str(status).upper(): max(int(count), 0)
+            for status, count in status_counts.items()
+        }
+        normalized_targets = list(dict.fromkeys(str(symbol) for symbol in target_symbols if symbol))
+        active_in_scope = {symbol for symbol in active_symbols if symbol in normalized_targets}
+        active_models = normalized_counts.get("ACTIVE", 0)
+        retired_models = normalized_counts.get("RETIRED", 0)
+        promoted_experiments = active_models + retired_models
+        total_experiments = sum(normalized_counts.values())
+        decisions = decision_counts or {}
+        return RlFleetOut(
+            target_pairs=len(normalized_targets),
+            target_models=len(normalized_targets) * max(len(target_timeframes), 1),
+            active_pairs=len(active_in_scope),
+            active_models=active_models,
+            shadow_models=normalized_counts.get("SHADOW", 0),
+            rejected_models=normalized_counts.get("REJECTED", 0),
+            retired_models=retired_models,
+            candidate_models=normalized_counts.get("CANDIDATE", 0),
+            total_experiments=total_experiments,
+            promoted_experiments=promoted_experiments,
+            promotion_rate_percent=round(promoted_experiments / max(total_experiments, 1) * 100, 2),
+            active_decisions_24h=max(int(decisions.get("rl_policy", 0)), 0),
+            shadow_decisions_24h=max(int(decisions.get("rl_shadow", 0)), 0),
+            uncovered_pairs=[symbol for symbol in normalized_targets if symbol not in active_in_scope],
+            last_training_at=last_training_at,
+        )
+
     def build_milestones(
         self,
         *,
@@ -163,12 +244,13 @@ class LearningProgressService:
         candle_pairs_total: int,
         trade_target: int,
         observation_target: int,
+        rl_pairs_total: int | None = None,
     ) -> list[LearningMilestoneOut]:
         return [
             self._milestone("candle_coverage", candle_pairs_ready, candle_pairs_total),
             self._milestone("trade_lessons", closed_trades, trade_target),
             self._milestone("memory_observations", learning_observations, observation_target),
-            self._milestone("active_rl_pairs", active_rl_pairs, candle_pairs_total),
+            self._milestone("active_rl_pairs", active_rl_pairs, rl_pairs_total or candle_pairs_total),
         ]
 
     def stage(

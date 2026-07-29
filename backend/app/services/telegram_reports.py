@@ -590,6 +590,7 @@ def worker_detail_summary(detail: dict) -> str:
         "checking_model": "проверка свежести модели",
         "ppo_training": "PPO-обучение и validation",
         "publishing_decision": "расчёт свежего RL-решения",
+        "training_deferred": "обучение поставлено в безопасную очередь",
         "cycle_complete": "цикл завершён",
         "cycle_failed": "цикл аварийно завершён",
     }
@@ -603,10 +604,15 @@ def worker_detail_summary(detail: dict) -> str:
         parts.append(f"прогресс {detail['progress']}")
     if stage == "cycle_complete":
         parts.append(
-            "обучено {trained}, принято {promoted}, решений {decisions}, ошибок {errors}".format(
+            "обучено {trained}, принято {promoted}, в тени {shadowed}, "
+            "активных решений {decisions}, теневых {shadow_decisions}, "
+            "в очереди {deferred}, ошибок {errors}".format(
                 trained=int(detail.get("trained", 0)),
                 promoted=int(detail.get("promoted", 0)),
+                shadowed=int(detail.get("shadowed", 0)),
                 decisions=int(detail.get("decisions", 0)),
+                shadow_decisions=int(detail.get("shadow_decisions", 0)),
+                deferred=int(detail.get("training_deferred", 0)),
                 errors=int(detail.get("errors", 0)),
             )
         )

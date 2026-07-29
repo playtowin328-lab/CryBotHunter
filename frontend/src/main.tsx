@@ -511,6 +511,8 @@ function DashboardView() {
 function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
   const milestones = data?.milestones ?? [];
   const blockers = data?.top_blockers_24h ?? [];
+  const fleet = data?.rl_fleet;
+  const rlCoverage = fleet?.target_pairs ? Math.round((fleet.active_pairs / fleet.target_pairs) * 100) : 0;
   return (
     <div className="panel-block learning-progress-panel">
       <div className="table-title table-title-row">
@@ -538,13 +540,48 @@ function LearningProgressPanel({ data }: { data: LearningProgress | null }) {
           <Metric label="Решения агентов 24ч" value={`${data?.agent_decisions_24h ?? 0}`} />
           <Metric label="Правила / наблюдения" value={`${data?.learning_rules ?? 0} / ${data?.learning_observations ?? 0}`} />
           <Metric label="Свечи готовы по парам" value={`${data?.candle_pairs_ready ?? 0} / ${data?.candle_pairs_total ?? 0}`} />
-          <Metric label="Активные RL-пары / модели" value={`${data?.active_rl_pairs ?? 0} / ${data?.trained_rl_models ?? 0}`} />
+          <Metric label="Покрытие активных RL-пар" value={`${fleet?.active_pairs ?? 0} / ${fleet?.target_pairs ?? 0}`} tone={rlCoverage >= 80 ? "good" : "bad"} />
           <Metric label="Оптимизировано пар" value={`${data?.optimized_pairs ?? 0}`} />
           <Metric
             label="Performance guard"
             value={data?.guard_recovery_mode ? "Восстановление" : data?.guard_allowed ? "Разрешает" : "Пауза"}
             tone={data?.guard_allowed ? undefined : "bad"}
           />
+        </div>
+        <div className="rl-control-center">
+          <div className="rl-control-header">
+            <div>
+              <span className="rl-control-kicker">RL CONTROL CENTER</span>
+              <h3>Парк обучающихся моделей</h3>
+              <p className="muted">
+                Покрытие считается по торговым парам. Исторические попытки обучения показываются отдельно и больше не выглядят как «512 пар».
+              </p>
+            </div>
+            <div className={`rl-coverage-orb ${rlCoverage >= 80 ? "ready" : ""}`}>
+              <strong>{rlCoverage}%</strong>
+              <span>покрытие</span>
+            </div>
+          </div>
+          <div className="analytics-grid rl-fleet-grid">
+            <Metric label="Активные пары / цель" value={`${fleet?.active_pairs ?? 0} / ${fleet?.target_pairs ?? 0}`} tone={rlCoverage >= 80 ? "good" : "bad"} />
+            <Metric label="Активные модели" value={`${fleet?.active_models ?? 0}`} tone="good" />
+            <Metric label="Теневые модели" value={`${fleet?.shadow_models ?? 0}`} />
+            <Metric label="Всего экспериментов" value={`${fleet?.total_experiments ?? 0}`} />
+            <Metric label="Успешных повышений" value={`${fleet?.promoted_experiments ?? 0} · ${fmt(fleet?.promotion_rate_percent)}%`} tone={(fleet?.promotion_rate_percent ?? 0) > 0 ? "good" : undefined} />
+            <Metric label="Отклонено / архив" value={`${fleet?.rejected_models ?? 0} / ${fleet?.retired_models ?? 0}`} />
+            <Metric label="Решения active / shadow за 24ч" value={`${fleet?.active_decisions_24h ?? 0} / ${fleet?.shadow_decisions_24h ?? 0}`} />
+            <Metric label="Последнее обучение" value={formatDateTime(fleet?.last_training_at)} />
+          </div>
+          <div className="rl-pair-coverage">
+            <div>
+              <strong>{fleet?.uncovered_pairs?.length ? "Пары в очереди на безопасное обучение" : "Все настроенные пары покрыты"}</strong>
+              <span className="muted">Теневая модель не имеет права открывать сделки, пока не пройдёт validation.</span>
+            </div>
+            <div className="rl-pair-chips">
+              {(fleet?.uncovered_pairs ?? []).map((symbol) => <span className="pill" key={symbol}>{symbol}</span>)}
+              {!fleet?.uncovered_pairs?.length && <span className="pill buy">Готово</span>}
+            </div>
+          </div>
         </div>
         <div className="learning-milestones">
           {milestones.map((item) => (
@@ -820,7 +857,11 @@ function RlModelsTable({ items }: { items: RlModel[] }) {
             <tr key={item.id}>
               <td className="font-semibold">{item.symbol} / {item.timeframe}</td>
               <td>{item.algorithm} #{item.id}</td>
-              <td><span className={`pill ${item.is_active ? "buy" : "sell"}`}>{item.is_active ? "Активна" : item.status === "RETIRED" ? "Архив" : "Отклонена"}</span></td>
+              <td>
+                <span className={`pill ${item.is_active ? "buy" : item.status === "REJECTED" ? "sell" : ""}`}>
+                  {item.is_active ? "Активна" : item.status === "SHADOW" ? "Тень · без торговли" : item.status === "RETIRED" ? "Архив" : item.status === "CANDIDATE" ? "Обучается" : "Отклонена"}
+                </span>
+              </td>
               <td>{item.training_candles.toLocaleString()} / {item.validation_candles.toLocaleString()}</td>
               <td className={(item.metrics.return_percent ?? 0) >= 0 ? "text-accent" : "text-danger"}>{fmt(item.metrics.return_percent)}%</td>
               <td>{fmt(item.metrics.profit_factor)}</td>

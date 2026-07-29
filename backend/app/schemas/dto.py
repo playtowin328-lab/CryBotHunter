@@ -326,6 +326,24 @@ class TradeBlockerOut(BaseModel):
     count: int
 
 
+class RlFleetOut(BaseModel):
+    target_pairs: int
+    target_models: int
+    active_pairs: int
+    active_models: int
+    shadow_models: int
+    rejected_models: int
+    retired_models: int
+    candidate_models: int
+    total_experiments: int
+    promoted_experiments: int
+    promotion_rate_percent: float
+    active_decisions_24h: int
+    shadow_decisions_24h: int
+    uncovered_pairs: list[str] = Field(default_factory=list)
+    last_training_at: datetime | None = None
+
+
 class LearningProgressOut(BaseModel):
     stage: Literal["COLLECTING", "CALIBRATING", "LEARNING", "MATURE"]
     overall_progress_percent: float
@@ -345,6 +363,7 @@ class LearningProgressOut(BaseModel):
     learning_observations: int
     active_rl_pairs: int
     trained_rl_models: int
+    rl_fleet: RlFleetOut
     optimized_pairs: int
     candle_pairs_ready: int
     candle_pairs_total: int
