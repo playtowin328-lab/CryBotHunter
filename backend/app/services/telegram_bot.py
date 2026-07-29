@@ -18,7 +18,7 @@ from app.models.entities import (
 )
 from app.services.control import TradingControlService
 from app.services.exchange import ExchangeClient
-from app.services.heartbeat import HeartbeatReporter, WorkerHeartbeatService
+from app.services.heartbeat import HeartbeatReporter, WorkerHeartbeatService, worker_is_healthy
 from app.services.performance_guard import PerformanceGuardService
 from app.services.pnl import PnlMetricsService
 from app.services.reconciliation import OrderReconciliationService
@@ -34,6 +34,8 @@ from app.services.telegram_reports import (
     format_worker_heartbeat_event,
     human_reason,
     split_telegram_message,
+    worker_detail_summary,
+    worker_status_label,
 )
 
 logger = logging.getLogger(__name__)
@@ -249,10 +251,15 @@ class TelegramCommandService:
                 f"└ Telegram outbox: <code>{int(pending_notifications)} в очереди</code>"
             )
             if heartbeats:
+                heartbeat_now = datetime.now(timezone.utc)
+                stale_seconds = max(int(settings.worker_heartbeat_stale_seconds), 60)
                 report += "\n\n<b>Worker heartbeat</b>\n" + "\n".join(
-                    f"{'🟢' if item.status in {'OK', 'PAUSED', 'DISABLED'} else '🟡'} "
-                    f"{escape(item.worker_name)} · <code>{escape(item.status)}</code> · "
-                    f"{_heartbeat_age(item.last_seen_at)}"
+                    _heartbeat_status_line(
+                        item,
+                        settings=settings,
+                        now=heartbeat_now,
+                        stale_seconds=stale_seconds,
+                    )
                     for item in heartbeats
                 )
             return report
@@ -457,6 +464,7 @@ class TelegramPollingBot:
                     status=event.status,
                     age_seconds=event.age_seconds,
                     detail=event.detail,
+                    stale_after_seconds=event.stale_after_seconds,
                 ),
                 dedupe_key=(
                     f"heartbeat:{event.kind}:{event.worker_name}:"
@@ -548,3 +556,27 @@ def _heartbeat_age(value: datetime) -> str:
     if seconds < 60:
         return f"{seconds} сек назад"
     return f"{seconds // 60} мин назад"
+
+
+def _aware_heartbeat(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _heartbeat_status_line(item, *, settings, now: datetime, stale_seconds: int) -> str:
+    detail = getattr(item, "detail", None) or {}
+    age_seconds = max(int((now - _aware_heartbeat(item.last_seen_at)).total_seconds()), 0)
+    healthy = worker_is_healthy(
+        status=item.status,
+        age_seconds=age_seconds,
+        base_seconds=stale_seconds,
+        detail=detail,
+        startup_grace_seconds=getattr(settings, "worker_heartbeat_startup_grace_seconds", 600),
+        long_task_grace_seconds=getattr(settings, "worker_heartbeat_long_task_grace_seconds", 900),
+    )
+    return (
+        f"{'🟢' if healthy else '🔴'} {escape(item.worker_name)} · "
+        f"<code>{escape(worker_status_label(item.status))}</code> · {_heartbeat_age(item.last_seen_at)}\n"
+        f"   {escape(worker_detail_summary(detail), quote=False)}"
+    )
