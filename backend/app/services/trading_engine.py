@@ -114,13 +114,16 @@ class TradingEngine:
         exposure = await self._portfolio_exposure(db)
         decisions: list[TradingDecision] = []
 
-        for coin in sorted(coins, key=lambda item: item.rating, reverse=True):
-            original_signal = self.strategy.evaluate(coin)
+        ranked_coins = [(coin, self.strategy.evaluate(coin)) for coin in coins]
+        ranked_coins.sort(key=lambda item: self._opportunity_rank(item[0], item[1]), reverse=True)
+
+        for coin, original_signal in ranked_coins:
             signal, exploration = self._paper_exploration_signal(coin, original_signal)
             db_signal = Signal(symbol=coin.symbol, signal=signal.signal, score=signal.score)
             db.add(db_signal)
             trade_settings = self._guard_recovery_settings(settings, guard)
             optimizer_reason = ""
+            committee: AgentAnalysisOut | None = None
 
             if exploration:
                 trade_settings = replace(
@@ -242,8 +245,10 @@ class TradingEngine:
                     signal.reasons,
                     balance,
                     trade_settings,
+                    signal_score=signal.score,
                     decision_reason=reason,
                     paper_exploration=exploration,
+                    committee=committee,
                 )
                 if position:
                     open_count += 1
@@ -433,8 +438,10 @@ class TradingEngine:
         signal_reasons: list[str],
         balance: float,
         settings: RiskSettings,
+        signal_score: int = 0,
         decision_reason: str = "",
         paper_exploration: bool = False,
+        committee: AgentAnalysisOut | None = None,
     ) -> Position | None:
         side = "LONG" if signal == "BUY" else "SHORT"
         stop, take, initial_risk = self._exit_plan(coin.price, coin.atr, side, settings)
@@ -463,6 +470,29 @@ class TradingEngine:
         entry_context = self.learning.entry_context(coin, signal, signal_reasons)
         entry_context["paper_exploration"] = paper_exploration
         entry_context["decision_reason"] = decision_reason
+        entry_context["signal_score"] = int(signal_score)
+        entry_context["entry_confidence"] = round(max(min(signal_score / 100, 1.0), 0.0), 4)
+        if committee:
+            agent_votes = [committee.market, *committee.committee, committee.risk]
+            if committee.llm:
+                agent_votes.append(committee.llm)
+            entry_context.update(
+                {
+                    "committee_consensus": round(float(committee.consensus_score), 4),
+                    "committee_confidence": round(float(committee.final_confidence), 4),
+                    "committee_action": committee.final_action,
+                    "committee_approved": bool(committee.approved),
+                    "agent_votes": [
+                        {
+                            "agent": vote.agent_name,
+                            "action": vote.action,
+                            "confidence": round(float(vote.confidence), 4),
+                            "rationale": vote.rationale,
+                        }
+                        for vote in agent_votes
+                    ],
+                }
+            )
         notional = entry_price * volume
         planned_risk = initial_risk * volume
         planned_reward = abs(take - entry_price) * volume
@@ -502,6 +532,14 @@ class TradingEngine:
         await db.flush()
         db.add(Trade(position_id=position.id, symbol=coin.symbol, side=side, entry_price=entry_price, exit_price=None, profit=-entry_order.fee))
         return position
+
+    def _opportunity_rank(self, coin: MarketCoin, signal: StrategySignal) -> tuple[int, int, int, int]:
+        return (
+            1 if signal.signal in {"BUY", "SELL"} else 0,
+            int(signal.score),
+            int(coin.regime_score),
+            int(coin.rating),
+        )
 
     def _same_side_position_limit(self, paper_exploration: bool) -> int:
         configured = max(int(self.settings.max_same_side_positions), 1)
