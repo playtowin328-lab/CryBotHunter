@@ -24,14 +24,13 @@ class LearningService:
     warn_threshold = 1.25
     max_penalty = 5.0
     min_observations_for_block = 2
+    min_specific_observations_for_block = 3
+    min_specific_losses_for_block = 3
+    min_specific_loss_rate_for_block = 0.75
+    hard_block_max_age_days = 7.0
     half_life_days = 14.0
     min_risk_multiplier = 0.35
-    blocking_feature_keys = {
-        "setup_signature",
-        "momentum_profile",
-        "risk_profile",
-        "post_mortem_primary_label",
-    }
+    blocking_feature_keys = {"setup_signature"}
     feature_weights = {
         "setup_signature": 1.6,
         "momentum_profile": 1.1,
@@ -83,19 +82,18 @@ class LearningService:
     async def assess_entry(self, db: AsyncSession, coin: MarketCoin, signal: str) -> LearningAssessment:
         side = "LONG" if signal == "BUY" else "SHORT"
         features = self._features_from_context(self.entry_context(coin, signal, []))
-        total_penalty = 0.0
         matched: list[tuple[LearningRule, float, str]] = []
         for scope in ("GLOBAL", coin.symbol):
             rules = await self._rules_for(db, scope, side, features)
             for rule in rules:
                 effective_penalty = self.effective_penalty(rule, scope)
                 if effective_penalty > 0:
-                    total_penalty += effective_penalty
                     label = f"{rule.feature_key}={rule.feature_value}:{effective_penalty:.2f}"
                     matched.append((rule, effective_penalty, label))
         matched.sort(key=lambda item: item[1], reverse=True)
+        total_penalty = self.aggregate_penalty(matched)
         match_summary = ", ".join(label for _rule, _penalty, label in matched[:4])
-        if total_penalty >= self.block_threshold and self._has_block_evidence(matched):
+        if self._has_block_evidence(matched):
             return LearningAssessment(
                 False,
                 round(total_penalty, 2),
@@ -194,6 +192,7 @@ class LearningService:
                 "losses": LearningRule.losses + (1 if loss else 0),
                 "total_profit": LearningRule.total_profit + profit,
                 "last_reason": reason,
+                "updated_at": func.now(),
             },
         )
         await db.execute(statement)
@@ -212,6 +211,14 @@ class LearningService:
     def risk_level(self, penalty: float, observations: int, updated_at: datetime | None = None) -> str:
         effective = penalty * self.rule_confidence(observations, updated_at)
         if effective >= self.block_threshold:
+            return "BLOCK"
+        if effective >= self.warn_threshold:
+            return "WARN"
+        return "WATCH"
+
+    def risk_level_for_rule(self, rule: LearningRule) -> str:
+        effective = self.effective_penalty(rule, rule.scope)
+        if self._is_hard_block_rule(rule, effective):
             return "BLOCK"
         if effective >= self.warn_threshold:
             return "WARN"
@@ -255,6 +262,17 @@ class LearningService:
             * self.outcome_weight(rule),
             4,
         )
+
+    def aggregate_penalty(self, matched: list[tuple[LearningRule, float, str]]) -> float:
+        """Combine correlated memories without counting every matching bucket as independent evidence."""
+        strongest_by_scope: dict[str, float] = {}
+        for rule, penalty, _label in matched:
+            strongest_by_scope[rule.scope] = max(strongest_by_scope.get(rule.scope, 0.0), float(penalty))
+        if not strongest_by_scope:
+            return 0.0
+        ordered = sorted(strongest_by_scope.values(), reverse=True)
+        combined = ordered[0] + (0.25 * ordered[1] if len(ordered) > 1 else 0.0)
+        return round(min(combined, self.max_penalty), 4)
 
     def feature_weight(self, feature_key: str) -> float:
         return self.feature_weights.get(feature_key, 0.4)
@@ -311,7 +329,7 @@ class LearningService:
         losses = max(int(rule.losses or 0), 0)
         win_rate = wins / observations * 100 if observations else 0.0
         confidence = self.rule_confidence(observations, rule.updated_at)
-        risk_level = self.risk_level(rule.penalty, observations, rule.updated_at)
+        risk_level = self.risk_level_for_rule(rule)
         effective_penalty = self.effective_penalty(rule, rule.scope)
         profitable = observations >= 2 and wins > losses and float(rule.total_profit or 0) > 0
         if risk_level == "BLOCK":
@@ -345,14 +363,30 @@ class LearningService:
         )
 
     def _has_block_evidence(self, matched: list[tuple[LearningRule, float, str]]) -> bool:
-        for rule, _penalty, _label in matched:
-            if rule.feature_key not in self.blocking_feature_keys:
-                continue
-            if rule.observations < self.min_observations_for_block:
-                continue
-            if rule.losses > rule.wins:
+        for rule, penalty, _label in matched:
+            if self._is_hard_block_rule(rule, penalty):
                 return True
         return False
+
+    def _is_hard_block_rule(self, rule: LearningRule, effective_penalty: float) -> bool:
+        observations = max(int(rule.observations or 0), 0)
+        losses = max(int(rule.losses or 0), 0)
+        if rule.scope == "GLOBAL" or rule.feature_key not in self.blocking_feature_keys:
+            return False
+        if observations < self.min_specific_observations_for_block or losses < self.min_specific_losses_for_block:
+            return False
+        if losses / observations < self.min_specific_loss_rate_for_block:
+            return False
+        if float(rule.total_profit or 0) >= 0 or effective_penalty < self.block_threshold:
+            return False
+        return self._age_days(rule.updated_at) <= self.hard_block_max_age_days
+
+    def _age_days(self, value: datetime | None) -> float:
+        if value is None:
+            return 0.0
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return max((datetime.now(timezone.utc) - value).total_seconds() / 86400, 0.0)
 
     def _atr_percent(self, atr: float, price: float) -> float:
         return atr / price * 100 if price > 0 else 0

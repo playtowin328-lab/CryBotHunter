@@ -100,7 +100,7 @@ async def learning_rules(_: User = Depends(current_user), db: AsyncSession = Dep
         LearningRuleOut(
             **rule.__dict__,
             confidence=round(service.rule_confidence(rule.observations, rule.updated_at), 2),
-            risk_level=service.risk_level(rule.penalty, rule.observations, rule.updated_at),
+            risk_level=service.risk_level_for_rule(rule),
         )
         for rule in result.scalars().all()
     ]
@@ -111,7 +111,7 @@ async def learning_summary(_: User = Depends(current_user), db: AsyncSession = D
     result = await db.execute(select(LearningRule))
     service = LearningService()
     rules = list(result.scalars().all())
-    levels = [service.risk_level(rule.penalty, rule.observations, rule.updated_at) for rule in rules]
+    levels = [service.risk_level_for_rule(rule) for rule in rules]
     return LearningSummaryOut(
         total_rules=len(rules),
         watch_rules=sum(1 for level in levels if level == "WATCH"),
