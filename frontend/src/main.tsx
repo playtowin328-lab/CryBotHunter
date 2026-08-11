@@ -5,6 +5,7 @@ import {
   BarChart3,
   Bot,
   CheckCircle2,
+  Download,
   KeyRound,
   LogOut,
   Play,
@@ -1073,6 +1074,7 @@ function MarketView() {
 function LogsView() {
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
   const [error, setError] = React.useState("");
+  const [exporting, setExporting] = React.useState(false);
   const load = React.useCallback(async () => {
     try {
       setError("");
@@ -1082,12 +1084,37 @@ function LogsView() {
     }
   }, []);
   React.useEffect(() => void load(), [load]);
+  async function downloadTradingAudit() {
+    try {
+      setExporting(true);
+      setError("");
+      const response = await api.get<Blob>("/logs/trading-audit", { responseType: "blob" });
+      const disposition = String(response.headers["content-disposition"] ?? "");
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] ?? "crybothunter-trading-audit.zip";
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(readError(err));
+    } finally {
+      setExporting(false);
+    }
+  }
   return (
     <section className="space-y-5">
       <Header title="Логи" subtitle="Сигналы, торговые действия и события системы">
+        <button className="btn primary" onClick={downloadTradingAudit} disabled={exporting}>
+          <Download size={16} /> {exporting ? "Готовим архив" : "Выгрузить аудит сделок"}
+        </button>
         <button className="btn" onClick={load}><RefreshCw size={16} /> Обновить</button>
       </Header>
       {error && <Alert tone="danger" text={error} />}
+      <Alert tone="good" text="Архив содержит все позиции, исполнения, ордера, комиссии, причины входа, голоса агентов, post-mortem и события закрытия." />
       <div className="table-wrap">
         <table>
           <thead><tr><th>Время</th><th>Уровень</th><th>Сообщение</th></tr></thead>
